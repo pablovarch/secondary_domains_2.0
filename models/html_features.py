@@ -33,22 +33,18 @@ class html_features:
         length_html= self.get_html_lenght(page)
         count_ad_script_src = self.count_ad_script_src(html, constants.ad_domains)
 
-        print(f'result_tags---{result_tags}')
-        print(f'length_html---{length_html}')
-        print(f'count_ad_script_src---{count_ad_script_src}')
-        # all_metrics = {
-        #     **dict_depth_metrics,
-        #     **dict_inline_script_metrics,
-        #     **dict_schema_org_metrics,
-        #     **dict_asn_ip_metrics,
-        #     **dict_cookie_wall_metrics,
-        #     **dict_lighthouse_metrics
-        # }
-
-        all_new_metrics = {**result_tags,'length_html': length_html, 'count_ad_script_src': count_ad_script_src}
-        # print(all_new_metrics)
-        return all_new_metrics
-        # return all_metrics
+        all_metrics = {
+            **dict_depth_metrics,
+            **dict_inline_script_metrics,
+            **dict_schema_org_metrics,
+            **dict_asn_ip_metrics,
+            **dict_cookie_wall_metrics,
+            **dict_lighthouse_metrics,
+            **result_tags,
+            'length_html': length_html,
+            'count_ad_script_src': count_ad_script_src
+        }
+        return all_metrics
 
     # Profundidad media del árbol DOM: Punto 1
     def get_dom_depth_metrics(self ,html: str) -> dict:
@@ -125,9 +121,6 @@ class html_features:
         except Exception as e:
             self.__logger.error(f'get_inline_script_metrics: {e}')
         return dict_inline_script_metrics
-
-    # Desactivadores de clic-derecho / keydown.
-
 
     #Pistas de contenido y lenguaje Uso de Schema.org
     def get_schema_org_metrics(self, html: str) -> dict:
@@ -569,7 +562,7 @@ class html_features:
             values = [input_features[col] for col in columns]
 
             sql_string = f"""
-                INSERT INTO public.html_features ({', '.join(columns)})
+                INSERT INTO public.domain_discovery_features ({', '.join(columns)})
                 VALUES ({', '.join(['%s'] * len(values))})
             """
 
