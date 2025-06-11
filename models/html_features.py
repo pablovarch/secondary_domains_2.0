@@ -370,7 +370,7 @@ class html_features:
         try:
             timeout: int = 120_000
             cmd = [
-                r"C:\Users\pablo\AppData\Roaming\npm\lighthouse.cmd",
+                r"C:\Users\Administrator\AppData\Roaming\npm\lighthouse.cmd",
                 url,
                 "--quiet",
                 "--chrome-flags=--headless --no-sandbox",

@@ -101,7 +101,9 @@ class Secondary_domains:
             raise
         else:
             # sql_string = """select * from domain_discovery dd  where online_status = 'Online' and dd.status_details = 'Bulk-check' order by dd.disc_domain_id limit 5000"""
-            sql_string = """select sec_domain_id, sec_domain  from secondary_domains sd where sd.sec_domain_source ='SW' """
+            sql_string = """select sd.sec_domain_id, sd.sec_domain  from secondary_domains sd
+                            left join secondary_domains_html sdh on sd.sec_domain_id = sdh.sec_domain_id 
+                            where sd.sec_domain_source ='SW' """
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data
