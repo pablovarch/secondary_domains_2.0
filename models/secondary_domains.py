@@ -101,9 +101,12 @@ class Secondary_domains:
             raise
         else:
             # sql_string = """select * from domain_discovery dd  where online_status = 'Online' and dd.status_details = 'Bulk-check' order by dd.disc_domain_id limit 5000"""
-            sql_string = """select sd.sec_domain_id, sd.sec_domain  from secondary_domains sd
-                            left join secondary_domains_html sdh on sd.sec_domain_id = sdh.sec_domain_id 
-                            where sd.sec_domain_source ='SW' """
+            sql_string = """SELECT DISTINCT sd.sec_domain_id , sd.sec_domain
+                            FROM secondary_domains sd
+                            -- INNER JOIN exclude_domain_attributes eda ON eda.exc_domain = sd.sec_domain
+                            LEFT JOIN domain_discovery_features ddf ON sd.sec_domain_id = ddf.sec_domain_id
+                            LEFT JOIN secondary_domains_html sdh ON sd.sec_domain_id = sdh.sec_domain_id
+                            ORDER BY sd.sec_domain_id ASC;; """
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data
@@ -158,4 +161,44 @@ class Secondary_domains:
                 cursor.close()
                 conn.close()
 
-        
+
+    def get_secondary_domain_html_id(self, sec_domain_id):
+        """
+        This method try to connect to the DB and save the data
+        :param browser_dict: dictionary containing the crawler settings information
+        """
+
+        # Try to connect to the DB
+        try:
+            conn = psycopg2.connect(host=db_connect['host'],
+                                    database=db_connect['database'],
+                                    password=db_connect['password'],
+                                    user=db_connect['user'],
+                                    port=db_connect['port'])
+            cursor = conn.cursor()
+
+        except Exception as e:
+            print('::DBConnect:: cant connect to DB Exception: {}'.format(e))
+            raise
+
+        else:
+            sec_domain_html_id  = None
+            sql_string = "select sdh.sec_domain_id from secondary_domains_html sdh where sdh.sec_domain_id = %s ;"
+
+            data = (sec_domain_id,)
+            try:
+                # Try to execute the sql_string to save the data
+                cursor.execute(sql_string, data)
+                sec_domain_html_id  = cursor.fetchone()
+                conn.commit()
+                if sec_domain_html_id :
+                    sec_domain_html_id  = sec_domain_html_id [0]
+
+            except Exception as e:
+                self.__logger.error('::Saver:: Error found trying to Save Data - {}'.format(e))
+
+            finally:
+                cursor.close()
+                conn.close()
+                return sec_domain_html_id
+

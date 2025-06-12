@@ -24,7 +24,6 @@ class secondary_domains_crawler:
             supply_list = self.__tools.read_csv('supply.csv')
             supply_list = self.__tools.clean_country_supply(supply_list)
             list_to_scan = self.__secondary_domains.get_all_secondary_domains()
-            # list_to_scan = [{'html_feature_id':11,'domain':'chelovek-muravey-lordfilm.ru'}]
             # Start crawler
             self.__logger.info(f" --- Start secondary_domains_crawler ---")
             self.__logger.info(f" --- {len(supply_list)} elements")
@@ -54,8 +53,15 @@ class secondary_domains_crawler:
                     if status_dict['online_status'] == 'Online':
                             self.__logger.info(f'insert features: {sec_domain}')
                             html_features['sec_domain_id'] = sec_domain_id
+                            html_features['domain_name'] = sec_domain
                             self.__html_features.insert_feature(html_features)
-                            self.__logger.info(f'save html: {sec_domain}')
+                            # check sec_domain_html_id
+                            sec_domain_html_id = self.__secondary_domains.get_secondary_domain_html_id(sec_domain_id)
+                            if not sec_domain_html_id:
+                                self.__logger.info(f'save html: {sec_domain}')
+                                self.__secondary_domains.save_secondary_domain_html(sec_domain_id,dict_feature_domain['html'])
+
+
 
                     self.__logger.info(f'update status - id:{sec_domain_id} - {status_dict}')
                     if status_dict['offline_type'] == 'Redirect':
