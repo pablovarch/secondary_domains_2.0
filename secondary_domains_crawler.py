@@ -21,12 +21,10 @@ class secondary_domains_crawler:
         global sec_domain
         try:
             list_country_data = self.__country.get_country_data()
-            supply_list = self.__tools.read_csv('supply.csv')
-            supply_list = self.__tools.clean_country_supply(supply_list)
             list_to_scan = self.__secondary_domains.get_all_secondary_domains()
             # Start crawler
             self.__logger.info(f" --- Start secondary_domains_crawler ---")
-            self.__logger.info(f" --- {len(supply_list)} elements")
+            self.__logger.info(f" --- {len(list_to_scan)} elements")
             
             for dom in list_to_scan:
                 try:
