@@ -1,9 +1,10 @@
 
 import secondary_domains_crawler
+import site_map
+import tld
 
 
 if __name__ == '__main__':
-    # obj = MainCrawler.Crawler()
-    # obj = Exclude_domains_crawler.Exclude_Crawler()
-    obj = secondary_domains_crawler.secondary_domains_crawler()
-    obj.crawl()
+    # secondary_domains_crawler.secondary_domains_crawler().crawl()
+    # site_map.site_map().main()
+    tld.tld().main()
