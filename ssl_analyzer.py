@@ -16,7 +16,7 @@ class ssl_analyzer :
             pool_recycle=3600)
 
         dbConnection = alchemyEngine.connect()
-        sec_domain = pd.read_sql(""" select sec_domain_root,exc_domain_id,ml_sec_domain_classification,ml_piracy,
+        sec_domain = pd.read_sql(""" select sec_domain_id, sec_domain_root,exc_domain_id,ml_sec_domain_classification,ml_piracy,
         ad_count,site_map_count,tld_poor,site_traffic from secondary_domains where online_status = 'Online' and redirect_domain = False """,
                                  dbConnection)
         domain_ssl = pd.read_sql(
@@ -28,7 +28,9 @@ class ssl_analyzer :
         domain_ssl = domain_ssl.dropna(subset='certificate_policies')
         sec_domain_merged = sec_domain.merge(domain_ssl, left_on="sec_domain_root", right_on="requested_domain")
         sec_domain_merged = self.evaluar_certificados_ssl(sec_domain_merged)
-        print(sec_domain_merged)
+        df_filtered = sec_domain_merged[['sec_domain_id', 'ssl_poor']]
+        data_to_save = df_filtered.to_dict('records')
+        self.update_domains(data_to_save)
 
 
 
@@ -88,7 +90,57 @@ class ssl_analyzer :
           - sospechoso: bool (ssl_score > 0.6)
         """
         df['ssl_score'] = df.apply(self.evaluate_ssl, axis=1)
-        df['sospechoso'] = df['ssl_score'] > 0.6
+        df['ssl_poor'] = df['ssl_score'] > 0.6
         return df
 
     #  update
+    def update_domains(self, save_data):
+        """
+        Efficiently updates domain data using a CTE VALUES block (no temp table needed).
+        """
+        try:
+            conn = psycopg2.connect(host=db_connect['host'],
+                                    database=db_connect['database'],
+                                    password=db_connect['password'],
+                                    user=db_connect['user'],
+                                    port=db_connect['port'])
+            print('DB connection opened')
+        except Exception as e:
+            print(f'::DBConnect:: cannot connect to DB Exception: {e}')
+            raise
+
+        try:
+            cursor = conn.cursor()
+
+            # Preparamos los valores (tuplas de domain_id y valor nuevo)
+            data_to_update = [
+                (domain['sec_domain_id'], domain['ssl_poor']) for domain in save_data
+            ]
+
+            # Crea un VALUES string gigante para el UPDATE masivo usando CTE
+            values_template = ",".join(["(%s, %s)"] * len(data_to_update))
+            flat_values = []
+            for tup in data_to_update:
+                flat_values.extend(tup)  # aplanamos la lista para pasar a execute
+
+            sql = f"""
+                WITH updates (sec_domain_id, value_to_update) AS (
+                    VALUES {values_template}
+                )
+                UPDATE public.secondary_domains AS t
+                SET ssl_poor = u.value_to_update
+                FROM updates u
+                WHERE t.sec_domain_id = u.sec_domain_id;
+            """
+
+            cursor.execute(sql, flat_values)
+            conn.commit()
+            print(f'{len(data_to_update)} domains updated using CTE VALUES method.')
+
+        except Exception as e:
+            print(f'Error during CTE batch update: {e}')
+            conn.rollback()
+        finally:
+            cursor.close()
+            conn.close()
+            print('DB connection closed')

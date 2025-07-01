@@ -23,8 +23,13 @@ class html_fields:
                 if html:
                     result_detect_ecommerce_signals = self.detect_ecommerce_signals(html)
                     result_detect_affiliate_handoffs = self.detect_affiliate_handoffs(html)
-                    count_ad = self.count_ad_slots_from_html(html)
-                    print(result_detect_ecommerce_signals, result_detect_affiliate_handoffs,count_ad)
+                    ad_count = self.count_ad_slots_from_html(html)
+                    self.__logger.info(f'update secondary domain id = {sec_domain_id}')
+                    self.update_secondary_domain(sec_domain_id,
+                                                 ad_count,
+                                                 result_detect_affiliate_handoffs['has_affiliate_handoff'],
+                                                 result_detect_ecommerce_signals['is_ecommerce']
+                                                 )
                 else:
                     self.__logger.info('site has not html')
 
@@ -247,3 +252,34 @@ class html_fields:
             return True
 
         return False
+
+    def update_secondary_domain(self, sec_domain_id, ad_count,has_affiliate_handoff,is_ecommerce ):
+        try:
+            conn = psycopg2.connect(host=db_connect['host'],
+                                    database=db_connect['database'],
+                                    password=db_connect['password'],
+                                    user=db_connect['user'],
+                                    port=db_connect['port'])
+            cursor = conn.cursor()
+        except Exception as e:
+            print('::DBConnect:: cannot connect to DB Exception: {}'.format(e))
+            raise
+        else:
+
+            sql_string = f"""
+                       UPDATE public.secondary_domains
+                       SET ad_count = %s ,
+                       has_affiliate_handoff = %s ,
+                       is_ecommerce = %s
+                       WHERE sec_domain_id = %s
+                   """
+            data = (ad_count,has_affiliate_handoff ,is_ecommerce, sec_domain_id)
+            try:
+                cursor.execute(sql_string, data)
+                conn.commit()
+            except Exception as e:
+                self.__logger.error(
+                    f'::Saver:: Error updating status on secondary domains with id {sec_domain_id} - {e}')
+            finally:
+                cursor.close()
+                conn.close()
