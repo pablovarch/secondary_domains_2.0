@@ -1,9 +1,11 @@
 from dependencies import  log
-from settings import db_connect
+from settings import db_connect, openia_apikey
 import psycopg2
 from urllib.parse import urlparse, parse_qs
 from bs4 import BeautifulSoup
+from html import unescape
 import re
+import openai
 
 
 class html_fields:
@@ -24,19 +26,20 @@ class html_fields:
                     result_detect_ecommerce_signals = self.detect_ecommerce_signals(html)
                     result_detect_affiliate_handoffs = self.detect_affiliate_handoffs(html)
                     ad_count = self.count_ad_slots_from_html(html)
+                    graymarket_label = self.process_html_to_graymarket(html)
+                    print(f'{sec_domain_id} --- {graymarket_label}')
                     self.__logger.info(f'update secondary domain id = {sec_domain_id}')
                     self.update_secondary_domain(sec_domain_id,
                                                  ad_count,
                                                  result_detect_affiliate_handoffs['has_affiliate_handoff'],
-                                                 result_detect_ecommerce_signals['is_ecommerce']
+                                                 result_detect_ecommerce_signals['is_ecommerce'],
+                                                 graymarket_label
                                                  )
                 else:
                     self.__logger.info('site has not html')
 
-
-
             except Exception as e:
-                self.__logger.error(f'Error getting ad_count for - {dom}')
+                self.__logger.error(f'Error getting htmls fields - {dom} - error {e}')
 
     def get_all_secondary_domains(self):
         # Try to connect to the DB
@@ -56,7 +59,7 @@ class html_fields:
             sql_string = """SELECT  distinct sd.sec_domain_id , sd.sec_domain  
                             FROM secondary_domains sd 
                             inner join secondary_domains_html sdh on sd.sec_domain_id = sdh.sec_domain_id 
-                            where sd.ad_count is null 
+                            where sd.graymarket_label is null 
                             and sd.online_status = 'Online'; """
             list_all_domains = []
             try:
@@ -253,7 +256,91 @@ class html_fields:
 
         return False
 
-    def update_secondary_domain(self, sec_domain_id, ad_count,has_affiliate_handoff,is_ecommerce ):
+    def extract_relevant_text(self, html: str) -> str:
+        """
+        Devuelve un bloque de texto listo para el LLM con:
+            • <title>
+            • <meta name="description">  o  <meta property="og:description">
+            • Cuerpo visible (sin script, style, iframe, etc.)
+        Los fragmentos se separan por líneas en blanco para dar contexto.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+
+        # ---- head: título y descripción --------------------------------
+        title = (
+            soup.title.get_text(" ", strip=True)
+            if soup.title else ""
+        )
+        meta = soup.find("meta", attrs={"name": "description"}) or \
+               soup.find("meta", attrs={"property": "og:description"})
+        description = meta.get("content", "").strip() if meta else ""
+
+        # ---- body: texto visible limpio --------------------------------
+        for tag in soup(["script", "style", "noscript", "iframe"]):
+            tag.decompose()
+
+        body_text = soup.get_text(separator=" ")
+        body_text = unescape(re.sub(r"\s+", " ", body_text)).strip()
+
+        # ---- combinamos respetando el orden ----------------------------
+        parts = [p for p in (title, description, body_text) if p]
+        combined = "\n\n".join(parts)
+        return combined
+
+
+    def llm_classify(self, text: str) -> str:
+        """Envía un prompt al LLM y valida que devuelva SOLO la etiqueta prevista."""
+        # --------------------------- CONFIGURACIÓN --------------------------- #
+        openai.api_key = openia_apikey        # <- mantén tu variable
+        MODEL = "gpt-4o-mini"
+        TEMPERATURE = 0
+
+        ALLOWED_LABELS = {
+            "Adult Content",
+            "Gambling & Betting",
+            "Cryptocurrency Speculation",
+            "Supplement / Nutra",
+            "undeterminated",
+        }
+
+        prompt = (
+            "You are a strict classification engine for compliance screening.\n"
+            "Task: Read the web-page excerpt (it may be in ANY language) and output ONE label, EXACTLY as written below, or 'undeterminated' if none apply.\n\n"
+            "• Adult Content - Pornography, escort services, explicit sexual material, or products aimed at sexual performance/enhancement.\n"
+            "• Gambling & Betting - Websites facilitating or promoting gambling, including casinos, sports betting, lotteries, fantasy sports, or any wagering services.\n"
+            "• Cryptocurrency Speculation - Content primarily focused on high-risk or unregulated crypto tokens, NFT promotions, get-rich-quick schemes, pump-and-dump communities, or speculative trading signals.\n"
+            "• Supplement / Nutra - Sites marketing dietary or nutritional supplements, vitamins, weight-loss pills, muscle enhancers, anti-aging or sexual health supplements.\n\n"
+            "If none of the above fit, respond with the single word: undeterminated.\n"
+            "‼️ VERY IMPORTANT: Respond with the label ONLY. No explanations or extra text.\n\n"
+            f"Excerpt (truncated if lengthy):\n\"\"\"\n{text[:4500]}\n\"\"\""
+        )
+
+        messages = [
+            {"role": "system", "content": "You are a text-classification engine."},
+            {"role": "user",   "content": prompt},
+        ]
+
+        response = openai.ChatCompletion.create(
+            model=MODEL,
+            temperature=TEMPERATURE,
+            messages=messages,
+        )
+        raw = response.choices[0].message.content.strip()
+        label = raw.splitlines()[0]           # descarta líneas extra
+        label = re.sub(r"[^\w &/]", "", label).strip()
+        return label if label in ALLOWED_LABELS else "undeterminated"
+
+
+
+    def process_html_to_graymarket(self, html: str) -> str:
+        """
+        Recibe HTML crudo y devuelve la etiqueta gray-market.
+        """
+        relevant_text = self.extract_relevant_text(html)
+        graymarket_label = self.llm_classify(relevant_text)
+        return graymarket_label
+
+    def update_secondary_domain(self, sec_domain_id, ad_count,has_affiliate_handoff,is_ecommerce,graymarket_label):
         try:
             conn = psycopg2.connect(host=db_connect['host'],
                                     database=db_connect['database'],
@@ -270,10 +357,11 @@ class html_fields:
                        UPDATE public.secondary_domains
                        SET ad_count = %s ,
                        has_affiliate_handoff = %s ,
-                       is_ecommerce = %s
+                       is_ecommerce = %s,
+                       graymarket_label = %s
                        WHERE sec_domain_id = %s
                    """
-            data = (ad_count,has_affiliate_handoff ,is_ecommerce, sec_domain_id)
+            data = (ad_count,has_affiliate_handoff ,is_ecommerce,graymarket_label, sec_domain_id)
             try:
                 cursor.execute(sql_string, data)
                 conn.commit()
@@ -283,3 +371,33 @@ class html_fields:
             finally:
                 cursor.close()
                 conn.close()
+
+    def update_secondary_domain_graymarket_label(self, sec_domain_id, graymarket_label ):
+        try:
+            conn = psycopg2.connect(host=db_connect['host'],
+                                    database=db_connect['database'],
+                                    password=db_connect['password'],
+                                    user=db_connect['user'],
+                                    port=db_connect['port'])
+            cursor = conn.cursor()
+        except Exception as e:
+            print('::DBConnect:: cannot connect to DB Exception: {}'.format(e))
+            raise
+        else:
+
+            sql_string = f"""
+                       UPDATE public.secondary_domains
+                       SET graymarket_label = %s
+                       WHERE sec_domain_id = %s
+                   """
+            data = (graymarket_label, sec_domain_id)
+            try:
+                cursor.execute(sql_string, data)
+                conn.commit()
+            except Exception as e:
+                self.__logger.error(
+                    f'::Saver:: Error updating status on secondary domains with id {sec_domain_id} - {e}')
+            finally:
+                cursor.close()
+                conn.close()
+

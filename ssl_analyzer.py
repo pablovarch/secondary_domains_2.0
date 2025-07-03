@@ -1,5 +1,5 @@
 from dependencies import  log
-from settings import db_connect
+from settings import db_connect, db_connect_df
 import psycopg2
 import pandas as pd
 from sqlalchemy import create_engine
@@ -12,7 +12,7 @@ class ssl_analyzer :
     def main(self):
         # Correcting the syntax error by removing the invalid 'DB Connection' line
         alchemyEngine = create_engine(
-            'postgresql+psycopg2://algorym:bp9x3e.fvi7hf45.DLQ@supply.cmyrnxn5vuvh.us-east-1.rds.amazonaws.com:5432/supply',
+            db_connect_df,
             pool_recycle=3600)
 
         dbConnection = alchemyEngine.connect()
