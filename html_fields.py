@@ -124,15 +124,12 @@ class html_fields:
 
     def _is_affiliate_link(self, url: str) -> bool:
         """True si URL coincide con patrón afiliado."""
-
-
         AFFILIATE_DOMAINS = [
             # redes y acortadores frecuentes
             'amazon.', 'amzn.to', 'clickbank.', 'shareasale.', 'cj.com',
             'awin1.', 'impact.com', 'partnerize.', 'rakuten.', 'linksynergy.',
             'ebay.', 'glnk.io', 'go2cloud.', 'rstyle.me', 'go.redirectingat.com'
         ]
-
         AFFILIATE_QUERY_KEYS = [
             'affid', 'affiliate', 'aff', 'ref', 'refid', 'subid', 'tag',
             'utm_medium', 'utm_campaign'
