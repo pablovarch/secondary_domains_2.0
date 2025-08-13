@@ -22,7 +22,6 @@ class is_high_risk_geo :
             sec_domain = dom['sec_domain']
             self.__logger.info(f'------scrape site {dom} - ')
 
-
             dict_asn_ip_metrics = self.get_asn_ip_metrics(sec_domain)
             if dict_asn_ip_metrics:
                 is_high_risk_geo = dict_asn_ip_metrics['is_high_risk_geo']

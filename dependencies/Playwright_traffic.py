@@ -135,6 +135,23 @@ class Playwright_traffic:
                     load_site = True
                     break
                 except Exception as e:
+                    errores_ssl = ['ERR_']
+                    if any(err in str(e) for err in errores_ssl):
+                        print('error de certificado')
+                        dict_feature_domain = None
+                        html_features = None
+                        try:
+                            status_msg = e.message.split("::")[1].split('at')[0]
+                        except Exception as exc:
+                            status_msg = 'Error cert'
+                        status_dict = {
+                            'online_status': 'Blocked',
+                            'offline_type': 'Error cert',
+                            'redirect_url': '',
+                            'status_msg': status_msg
+                        }
+
+                        return status_dict, dict_feature_domain, html_features
                     self.__logger.error(f'error load page {e}')
                     tries += 1
             # site_url = page.url

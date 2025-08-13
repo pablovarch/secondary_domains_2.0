@@ -21,14 +21,15 @@ class html_features:
         self.__logger = log.Log().get_logger(name=constants.log_file['log_name'])
 
     def main(self, page, site):
-
+        url = f'http://{site}'
         html = page.content()
         dict_depth_metrics = self.get_dom_depth_metrics(html)
         dict_inline_script_metrics = self.get_inline_script_metrics(html)
         dict_schema_org_metrics = self.get_schema_org_metrics_2(html)
         dict_asn_ip_metrics = self.get_asn_ip_metrics(site)
         dict_cookie_wall_metrics = self.get_cookie_wall_metrics(page)
-        dict_lighthouse_metrics = self.get_lighthouse_metrics(site)
+        # dict_lighthouse_metrics = self.get_lighthouse_metrics(site)
+        dict_lighthouse_metrics = self.psi_metrics(url, api_key)
         result_tags = self.count_html_tags_and_text( html)
         length_html= self.get_html_lenght(page)
         count_ad_script_src = self.count_ad_script_src(html, constants.ad_domains)
@@ -744,3 +745,25 @@ class html_features:
             if any(domain in src for domain in ad_domains):
                 count += 1
         return count
+
+    def psi_metrics(self, url: str, api_key: str) -> dict:
+        endpoint = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
+        params = {
+            "url": url,
+            "strategy": "mobile",
+            "category": "performance",
+            "key": api_key
+        }
+        resp = requests.get(endpoint, params=params, timeout=120)
+        data = resp.json().get("lighthouseResult", {})
+        if data:
+            audits = data.get("audits", {})
+            perf = data.get("categories", {}).get("performance", {})
+            return {
+                "performance_score": perf.get("score", 0) * 100,
+                "largest_contentful_paint": audits.get("largest-contentful-paint", {}).get("numericValue", 0),
+                "cumulative_layout_shift": audits.get("cumulative-layout-shift", {}).get("numericValue", 0),
+
+            }
+        else:
+            return data
