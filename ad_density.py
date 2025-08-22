@@ -18,7 +18,7 @@ class ad_density:
         dbConnection = alchemyEngine.connect()
 
         sec_domain = pd.read_sql(""" select sec_domain_id,ml_sec_domain_classification,html_length,
-        ad_count from secondary_domains where online_status = 'Online' and redirect_domain = False """, dbConnection)
+        ad_count from secondary_domains where online_status = 'Online' and ad_density is null """, dbConnection)
         dbConnection.close()
         data = sec_domain[["sec_domain_id", "ad_count", "html_length"]].query("~html_length.isna()")
         data["ad_density"] = data["ad_count"] / data["html_length"] >  0.015
