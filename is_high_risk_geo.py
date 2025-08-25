@@ -119,7 +119,11 @@ class is_high_risk_geo :
                 answers = dns.resolver.resolve(domain, 'A')
                 ip = answers[0].to_text()
             except Exception:
-                return {}
+                return {
+                    'asn_age': None,
+                    'ip_country': None,
+                    'is_high_risk_geo': True,
+                }
 
             # 2) Consultar RDAP vía ipwhois
             obj = IPWhois(ip)
