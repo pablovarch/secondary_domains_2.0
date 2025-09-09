@@ -3,7 +3,7 @@ from models import  country, html_features, secondary_domains
 import constants, settings
 import random
 import psycopg2
-from settings import db_connect
+from settings import proxy_zenrows
 
 
 class secondary_domains_crawler:
@@ -38,13 +38,17 @@ class secondary_domains_crawler:
                     random_profile = random.choice(settings.profile_list)
 
                     # get proxy data
-                    proxy_data = self.__proxy.get_proxy_data(coun, list_country_data, self.__list_country_oxy)
-
+                    # proxy_data = self.__proxy.get_proxy_data(coun, list_country_data, self.__list_country_oxy)
+                    # proxy_dict = proxy_data['proxy_dict']
+                    proxy_dict =  {
+                    'server': f"{proxy_zenrows['proxy_host']}:{proxy_zenrows['proxy_port']}",
+                    'username': proxy_zenrows['proxy_user'],
+                    'password': proxy_zenrows['proxy_pass']               }
 
 
                     # navigation
-                    status_dict , dict_feature_domain , html_features = self.__playwright.navigation(sec_domain,
-                                                                                     proxy_data['proxy_dict'],
+                    status_dict , dict_feature_domain , html_features, html_length= self.__playwright.navigation(sec_domain,
+                                                                                     proxy_dict,
                                                                                      random_profile,
                                                                                      )
                         
@@ -53,6 +57,8 @@ class secondary_domains_crawler:
                             html_features['sec_domain_id'] = sec_domain_id
                             html_features['domain_name'] = sec_domain
                             self.__html_features.insert_feature(html_features)
+
+                            self.__secondary_domains.update_secondary_domain_html_lenght(html_length, sec_domain_id)
                             # check sec_domain_html_id
                             sec_domain_html_id = self.__secondary_domains.get_secondary_domain_html_id(sec_domain_id)
                             if not sec_domain_html_id:
