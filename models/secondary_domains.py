@@ -202,3 +202,42 @@ class Secondary_domains:
                 conn.close()
                 return sec_domain_html_id
 
+    def update_secondary_domain_html_lenght(self, html_length,sec_domain_id ):
+
+        """
+        This method try to connect to the DB and save the data
+        :param values_dict: dictionary containing the secondary information
+        """
+
+        # Try to connect to the DB
+        try:
+            conn = psycopg2.connect(host=db_connect['host'],
+                                    database=db_connect['database'],
+                                    password=db_connect['password'],
+                                    user=db_connect['user'],
+                                    port=db_connect['port'])
+            cursor = conn.cursor()
+
+        except Exception as e:
+            print('::DBConnect:: cant connect to DB Exception: {}'.format(e))
+            raise
+
+        else:
+
+            sql_string = """UPDATE public.secondary_domains SET  html_length=%s WHERE sec_domain_id=%s;"""
+
+            data = (
+                html_length,
+                sec_domain_id
+            )
+            try:
+                # Try to execute the sql_string to save the data
+                cursor.execute(sql_string, data)
+                conn.commit()
+            except Exception as e:
+                self.__logger.error(
+                    '::subdomain:: Error found trying to Update secondary domains - {}'.format(e))
+
+            finally:
+                cursor.close()
+                conn.close()

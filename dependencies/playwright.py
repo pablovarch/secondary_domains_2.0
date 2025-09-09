@@ -49,14 +49,25 @@ class Playwright:
                 try:
 
                     status_dict , dict_feature_domain, html_features = Playwright_traffic.Playwright_traffic().capture_traffic(page, domain_item)
-                    
-                    list_screenshots = []   
+                    try:
+                        # Obtener el tamaño total de la página en píxeles
+                        page_size = page.evaluate('''() => {
+                                                                           return {
+                                                                               width: document.documentElement.scrollWidth,
+                                                                               height: document.documentElement.scrollHeight
+                                                                           };
+                                                                       }''')
+
+                        self.__logger.info(f'Tamaño de la página: {page_size["width"]}x{page_size["height"]} píxeles')
+                        html_length = page_size["height"]
+                    except Exception as e:
+                        html_length = None
 
                     # Cierra el navegador y el contexto                    
                     page.close()
                     context.close()
                     browser.close()
-                    return status_dict , dict_feature_domain, html_features
+                    return status_dict , dict_feature_domain, html_features , html_length
                 except Exception as e:
                     list_ad_chains_url = []
                     raise
