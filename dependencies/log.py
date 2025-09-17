@@ -11,6 +11,9 @@ def get_files(folder_path):
     return ls(folder_path)
 
 
+import os
+import logging
+
 class Log:
     def __init__(self):
         pass
@@ -22,13 +25,19 @@ class Log:
             Create a Logging object
         """
         try:
+            # Crear carpeta logs si no existe
+            log_dir = os.path.join(os.path.abspath('./'), "logs")
+            os.makedirs(log_dir, exist_ok=True)
+
             if name:
                 logger = logging.getLogger(name)
                 if not logger.hasHandlers():
                     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
-                    file_handler = logging.FileHandler(os.path.join(os.path.abspath('./'), '%s.log' % name), mode='w+',
-                                                       encoding='utf-8')
+                    file_handler = logging.FileHandler(
+                        os.path.join(log_dir, f"{name}.log"),
+                        mode='w+', encoding='utf-8'
+                    )
                     file_handler.setFormatter(formatter)
 
                     stream_handler = logging.StreamHandler()
@@ -42,7 +51,10 @@ class Log:
                 if not logger.hasHandlers():
                     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
-                    file_handler = logging.FileHandler(os.path.join(os.path.abspath('./'), 'output.log'), mode='w+')
+                    file_handler = logging.FileHandler(
+                        os.path.join(log_dir, "output.log"),
+                        mode='w+', encoding='utf-8'
+                    )
                     file_handler.setFormatter(formatter)
 
                     stream_handler = logging.StreamHandler()
@@ -55,4 +67,3 @@ class Log:
             return logger
         except Exception as e:
             raise e
-
