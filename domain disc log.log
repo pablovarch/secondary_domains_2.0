@@ -1,6 +1,0 @@
-2025-06-05 19:36:53,827 - INFO -  --- Start secondary_domains_crawler ---
-2025-06-05 19:36:53,827 - INFO -  --- 1 elements
-2025-06-05 19:36:53,827 - INFO - ------scrape site {'html_feature_id': 11, 'domain': 'chelovek-muravey-lordfilm.ru'} - country United States
-2025-06-05 19:36:53,827 - INFO -  --- set playwright chromium ---
-2025-06-05 19:37:17,112 - INFO -  --- start capture traffic playwright chromium ---
-2025-06-05 19:37:36,491 - INFO - --try to capture terms --
