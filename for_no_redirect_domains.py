@@ -153,7 +153,9 @@ class For_no_redirect_domains :
                             sd.is_high_risk_geo  
                             from secondary_domains sd  
                             where ml_sec_domain_classification is null
-                            and sd.online_status ='Online' """
+                            and sd.online_status ='Online'
+                            and sd.redirect_domain = False 
+                             """
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data
