@@ -100,13 +100,18 @@ class Secondary_domains:
             print('::DBConnect:: cant connect to DB Exception: {}'.format(e))
             raise
         else:
-            # sql_string = """select * from domain_discovery dd  where online_status = 'Online' and dd.status_details = 'Bulk-check' order by dd.disc_domain_id limit 5000"""
-            sql_string = """SELECT DISTINCT sd.sec_domain_id , sd.sec_domain
-                            FROM secondary_domains sd
-                            -- INNER JOIN exclude_domain_attributes eda ON eda.exc_domain = sd.sec_domain
-                            LEFT JOIN domain_discovery_features ddf ON sd.sec_domain_id = ddf.sec_domain_id
-                            LEFT JOIN secondary_domains_html sdh ON sd.sec_domain_id = sdh.sec_domain_id
-                            ORDER BY sd.sec_domain_id ASC;; """
+            sql_string = """
+                SELECT DISTINCT sd.sec_domain_id , sd.sec_domain  
+                from secondary_domains sd
+                where 
+                sd.online_status = 'Online-Bulk-check'
+                """
+            # sql_string = """SELECT DISTINCT sd.sec_domain_id , sd.sec_domain
+            #                 FROM secondary_domains sd
+            #                 -- INNER JOIN exclude_domain_attributes eda ON eda.exc_domain = sd.sec_domain
+            #                 LEFT JOIN domain_discovery_features ddf ON sd.sec_domain_id = ddf.sec_domain_id
+            #                 LEFT JOIN secondary_domains_html sdh ON sd.sec_domain_id = sdh.sec_domain_id
+            #                 ORDER BY sd.sec_domain_id ASC; """
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data
