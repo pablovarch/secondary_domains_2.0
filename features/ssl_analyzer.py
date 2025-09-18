@@ -34,7 +34,7 @@ class ssl_analyzer :
         from secondary_domains sd
         where 
             sd.ssl_poor is null 
-            sd.online_status = 'Online'
+            and sd.online_status = 'Online'
             and sd.redirect_domain = False
             """,
                                  dbConnection)
