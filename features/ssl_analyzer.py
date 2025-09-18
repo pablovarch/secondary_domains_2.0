@@ -20,8 +20,23 @@ class ssl_analyzer :
         # ad_count,site_map_count,tld_poor,site_traffic from secondary_domains where online_status = 'Online' and redirect_domain = False """,
         #                          dbConnection)
 
-        sec_domain = pd.read_sql("""  select sec_domain_id, sec_domain_root,exc_domain_id,ml_sec_domain_classification,ml_piracy,
-        ad_count,site_map_count,tld_poor,site_traffic from secondary_domains where ssl_poor is null """,
+        sec_domain = pd.read_sql("""  
+        select 
+            sec_domain_id, 
+            sec_domain_root,
+            exc_domain_id,
+            ml_sec_domain_classification,
+            ml_piracy,
+            ad_count,
+            site_map_count,
+            tld_poor,
+            site_traffic 
+        from secondary_domains sd
+        where 
+            sd.ssl_poor is null 
+            sd.online_status = 'Online'
+            and sd.redirect_domain = False
+            """,
                                  dbConnection)
         domain_ssl = pd.read_sql(
             """select requested_domain, validation_type, issuer_organization, valid_from, public_key_type, certificate_policies, dns_names from domain_ssl_data""",

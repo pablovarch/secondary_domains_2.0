@@ -46,7 +46,9 @@ class is_high_risk_geo :
             sql_string = """SELECT  distinct sd.sec_domain_id , sd.sec_domain  
             FROM secondary_domains sd 
             where sd.is_high_risk_geo is null 
-            and sd.online_status = 'Online' """
+            and sd.online_status = 'Online'
+            sd.redirect_domain = False 
+             """
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data
@@ -179,4 +181,9 @@ class is_high_risk_geo :
             }
         except Exception as e:
             self.__logger.error(f'get_asn_ip_metrics: {e}')
+            return {
+                'asn_age': None,
+                'ip_country': None,
+                'is_high_risk_geo': True,
+            }
         return dict_asn_ip_metrics

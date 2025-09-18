@@ -87,10 +87,13 @@ class tld :
             raise
         else:
             # sql_string = """select * from domain_discovery dd  where online_status = 'Online' and dd.status_details = 'Bulk-check' order by dd.disc_domain_id limit 5000"""
-            sql_string = """SELECT  distinct sd.sec_domain_id , sd.sec_domain  
+            sql_string = """
+            SELECT  distinct sd.sec_domain_id , sd.sec_domain  
             FROM secondary_domains sd 
             where sd.tld_poor is null 
-            and sd.online_status = 'Online'; """
+            and sd.online_status = 'Online'
+            and sd.redirect_domain = False
+            ; """
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data

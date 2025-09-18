@@ -18,16 +18,16 @@ except Exception:
 #  SQLs
 # =========================
 SQL_QUERY = """
-SELECT DISTINCT sd.sec_domain_id, sd.sec_domain, ssl_poor, mfa_engagement, high_traffic
-FROM secondary_domains sd
-WHERE sd.online_status = 'Online'
-  AND sd.redirect_domain = false
-  -- and sd.added  = '2025-09-12'
-  AND (
-        sd.ssl_poor IS NULL
-        OR sd.mfa_engagement IS NULL
-        OR sd.high_traffic IS NULL
-      ) 
+    SELECT DISTINCT sd.sec_domain_id, sd.sec_domain, ssl_poor, mfa_engagement, high_traffic
+    FROM secondary_domains sd
+    WHERE 
+        sd.online_status = 'Online'
+        AND sd.redirect_domain = false
+        AND (
+            sd.ssl_poor IS NULL
+            OR sd.mfa_engagement IS NULL
+            OR sd.high_traffic IS NULL
+          ) 
 """
 
 SQL_TLD_LIST = "SELECT tld FROM tld_list"
