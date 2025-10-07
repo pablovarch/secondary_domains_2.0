@@ -47,7 +47,7 @@ class is_high_risk_geo :
             FROM secondary_domains sd 
             where sd.is_high_risk_geo is null 
             and sd.online_status = 'Online'
-            sd.redirect_domain = False 
+            and sd.redirect_domain = False 
              """
             list_all_domains = []
             try:

@@ -6,9 +6,9 @@ from sqlalchemy import create_engine
 from datetime import datetime
 
 
-class mfa_engagement:
+class mfa_engagement_class:
     def __init__(self):
-        self.__logger = log.Log().get_logger(name='mfa_enagement.log')
+        self.__logger = log.Log().get_logger(name='mfa_enagement_class.log')
 
     def main(self):
         # Correcting the syntax error by removing the invalid 'DB Connection' line
@@ -29,7 +29,7 @@ class mfa_engagement:
                                         ) AS rn
                                     FROM dim_engagement_metrics dem
                                     WHERE dem.sec_domain_id IS NOT NULL
-                                    and ( dem.avg_visit_duration is not null and dem.avg_visit_duration != '0')                
+                                    and ( dem.avg_visit_duration is null or dem.avg_visit_duration = '0')                
                                 )
                                 SELECT
                                     sec_domain_id,
@@ -40,13 +40,18 @@ class mfa_engagement:
                                 FROM ranked
                                 WHERE rn = 1;                                 -- solo la fila “más nueva” por dominio
                                 """, dbConnection)
+        sec_domains = pd.read_sql("""
+                                SELECT sec_domain_id, 
+                                sec_domain, 
+                                online_status, 
+                                ml_sec_domain_classification, 
+                                sec_domain_source
+                                FROM secondary_domains
+                                """, dbConnection)
 
         dbConnection.close()
 
-        # Convert avg_visit_duration to seconds for comparison
-        engagement['avg_visit_duration_seconds'] = engagement['avg_visit_duration'].apply(
-            lambda x: sum(int(t) * 60 ** i for i, t in enumerate(reversed(x.split(':'))))
-        )
+        filtered_list = pd.merge(sec_domains, engagement, on='sec_domain_id', how='inner')
 
         # Add the mfa_engagement column based on the conditions
         engagement['mfa_engagement'] = (
@@ -56,8 +61,8 @@ class mfa_engagement:
         )
         print(engagement)
         df_filtered = engagement[['sec_domain_id', 'mfa_engagement']]
-        data_to_save = df_filtered.to_dict('records')
-        self.update_domains(data_to_save)
+        # data_to_save = df_filtered.to_dict('records')
+        # self.update_domains(data_to_save)
 
     def update_domains(self, save_data):
         """

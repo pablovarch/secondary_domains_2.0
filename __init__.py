@@ -10,6 +10,8 @@ from features import ad_density
 from features import is_high_risk_geo
 from features import cleaner_domains
 import for_no_redirect_domains
+# import mfa_engagement_class
+from features import features_to_search
 
 if __name__ == '__main__':
     # secondary_domains_crawler.secondary_domains_crawler().crawl()
@@ -22,4 +24,6 @@ if __name__ == '__main__':
     #ad_density.ad_density().main()
     # is_high_risk_geo.is_high_risk_geo().main()
     # for_no_redirect_domains.For_no_redirect_domains().main()
-    cleaner_domains.CleanerDomain().main()
+    # cleaner_domains.CleanerDomain().main()
+    # mfa_engagement_class.mfa_engagement_class().main()
+    features_to_search.main()
