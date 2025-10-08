@@ -12,6 +12,7 @@ from features import cleaner_domains
 import for_no_redirect_domains
 # import mfa_engagement_class
 from features import features_to_search
+import addres_bar_class
 
 if __name__ == '__main__':
     # secondary_domains_crawler.secondary_domains_crawler().crawl()
@@ -26,4 +27,5 @@ if __name__ == '__main__':
     # for_no_redirect_domains.For_no_redirect_domains().main()
     # cleaner_domains.CleanerDomain().main()
     # mfa_engagement_class.mfa_engagement_class().main()
-    features_to_search.main()
+    # features_to_search.main()
+    addres_bar_class.Address_bar_class().main()
