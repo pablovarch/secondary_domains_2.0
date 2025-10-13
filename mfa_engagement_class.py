@@ -2,6 +2,7 @@ from dependencies import log
 from settings import db_connect, db_connect_df
 import psycopg2
 import pandas as pd
+import numpy as np
 from sqlalchemy import create_engine
 from datetime import datetime
 
@@ -52,6 +53,63 @@ class mfa_engagement_class:
         dbConnection.close()
 
         filtered_list = pd.merge(sec_domains, engagement, on='sec_domain_id', how='inner')
+
+
+        def duration_to_seconds(x, two_part='auto'):
+            """
+            Convierte 'hh:mm:ss' | 'mm:ss' | 'hh:mm' | 'ss' a segundos.
+            - Mantiene NaN/None/Missing como NaN.
+            - Acepta enteros/floats (se interpretan como segundos).
+            - Para dos partes:
+                - two_part='auto' (default): si el 2º componente >=60 => 'hh:mm', si no => 'mm:ss'
+                - two_part='mm:ss' o 'hh:mm' para forzar una interpretación.
+            """
+            # nulos
+            if x is None or (isinstance(x, float) and np.isnan(x)):
+                return np.nan
+
+            s = str(x).strip()
+            if s == '' or s.lower() in {'nan', 'none', 'missing'}:
+                return np.nan
+
+            # ya numérico (ej. "0", 0, 12.0)
+            try:
+                if s.replace('.', '', 1).isdigit():
+                    return int(float(s))
+            except Exception:
+                pass
+
+            if ':' not in s:
+                return np.nan
+
+            # soportar h:m:s(.fff)
+            parts = [p.split('.')[0].strip() for p in s.split(':')]
+            try:
+                parts = list(map(int, parts))
+            except ValueError:
+                return np.nan
+
+            if len(parts) == 3:  # hh:mm:ss
+                h, m, sec = parts
+                return h * 3600 + m * 60 + sec
+            elif len(parts) == 2:  # mm:ss  ó  hh:mm
+                a, b = parts
+                if two_part == 'hh:mm':
+                    return a * 3600 + b * 60
+                if two_part == 'mm:ss':
+                    return a * 60 + b
+                # auto (heurística)
+                return a * 3600 + b * 60 if b >= 60 else a * 60 + b
+            elif len(parts) == 1:  # "ss"
+                return parts[0]
+            else:
+                return np.nan
+
+        # Uso:
+        engagement['avg_visit_duration_seconds'] = (
+            engagement['avg_visit_duration'].apply(duration_to_seconds)  # two_part='auto' por defecto
+        )
+
 
         # Add the mfa_engagement column based on the conditions
         engagement['mfa_engagement'] = (

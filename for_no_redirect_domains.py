@@ -70,11 +70,14 @@ class For_no_redirect_domains :
             if ml_sec_domain_classification:
                 if ml_sec_domain_classification == 4 and graymarket_label and graymarket_label != 'undeterminated':
                     ml_sec_domain_classification = dict_graymarket[graymarket_label]
-
-                self.__logger.info(f'update domain - {sec_domain} - ml_sec_domain_classification: {ml_sec_domain_classification}')
-                self.update_secondary_domain(sec_domain_id,ml_sec_domain_classification)
             else:
+                if graymarket_label and graymarket_label != 'undeterminated':
+                    ml_sec_domain_classification = dict_graymarket[graymarket_label]
                 self.__logger.info(f'domain - {sec_domain_id} cant be classificated')
+
+            self.__logger.info(
+                f'update domain - {sec_domain} - ml_sec_domain_classification: {ml_sec_domain_classification}')
+            self.update_secondary_domain(sec_domain_id, ml_sec_domain_classification)
 
 
 
