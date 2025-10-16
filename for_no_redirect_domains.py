@@ -142,42 +142,24 @@ class For_no_redirect_domains :
             raise
         else:
             # sql_string = """select * from domain_discovery dd  where online_status = 'Online' and dd.status_details = 'Bulk-check' order by dd.disc_domain_id limit 5000"""
-            # sql_string = """
-            #                 select sd.sec_domain_id ,
-            #                 sd.sec_domain,
-            #                 sd.ssl_poor,
-            #                 sd.high_traffic,
-            #                 sd.is_ecommerce,
-            #                 sd.mfa_engagement,
-            #                 sd.has_affiliate_handoff,
-            #                 sd.graymarket_label,
-            #                 sd.ad_density,
-            #                 sd.tld_poor,
-            #                 sd.is_high_risk_geo
-            #                 from secondary_domains sd
-            #                 where ml_sec_domain_classification is null
-            #                 and sd.online_status ='Online'
-            #                 and sd.redirect_domain = False
-            #                  """
             sql_string = """
-            select distinct sd.sec_domain_id ,
-            sd.sec_domain,
-            sd.ssl_poor,
-            sd.high_traffic,
-            sd.is_ecommerce,
-            sd.mfa_engagement,
-            sd.has_affiliate_handoff,
-            sd.graymarket_label,
-            sd.ad_density,
-            sd.tld_poor,
-            sd.is_high_risk_geo
-            from secondary_domains sd  
-            inner join address_bar_url abu on sd.sec_domain = abu.address_bar_domain 
-            where
-            abu.landing_page is true
-            and ml_sec_domain_classification is null
-            and sd.online_status ='Online'
-            """
+                            select sd.sec_domain_id ,
+                            sd.sec_domain,
+                            sd.ssl_poor,
+                            sd.high_traffic,
+                            sd.is_ecommerce,
+                            sd.mfa_engagement,
+                            sd.has_affiliate_handoff,
+                            sd.graymarket_label,
+                            sd.ad_density,
+                            sd.tld_poor,
+                            sd.is_high_risk_geo
+                            from secondary_domains sd
+                            where ml_sec_domain_classification is null
+                            and sd.online_status ='Online'
+                            and sd.redirect_domain = False
+                             """
+
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data
