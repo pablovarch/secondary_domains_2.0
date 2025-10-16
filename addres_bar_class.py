@@ -42,7 +42,8 @@ class Address_bar_class:
                                 WHERE tab_num > 0
                                   AND source_domain IS DISTINCT FROM address_bar_domain
                                   AND grp_max > 0
-                                  AND address_bar_num < grp_max;
+                                  AND address_bar_num < grp_max
+                                  AND landing_page is False;
                                 """, dbConnection)
 
         sec_domains = pd.read_sql("""

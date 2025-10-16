@@ -35,35 +35,35 @@ class For_no_redirect_domains :
             tld_poor = dom['tld_poor']
             is_high_risk_geo = dom['is_high_risk_geo']
             # check poor ssl
-            if ssl_poor and is_high_risk_geo:
-                self.__logger.info('domain is a referal_cloaking')
+            if ssl_poor and not high_traffic and graymarket_label == 'undeterminated':
+                # self.__logger.info('domain is a referal_cloaking')
                 ml_sec_domain_classification = 2
             else:
                 if high_traffic and is_ecommerce:
-                    self.__logger.info('domain is a comercial target')
+                    # self.__logger.info('domain is a comercial target')
                     ml_sec_domain_classification = 4
                 else:
                     if mfa_engagement:
                         if is_ecommerce or has_affiliate_handoff:
-                            self.__logger.info('domain is a comercial target')
+                            # self.__logger.info('domain is a comercial target')
                             ml_sec_domain_classification = 4
                         else:
                             if ad_density and tld_poor:
-                                self.__logger.info('domain is a MFA')
+                                # self.__logger.info('domain is a MFA')
                                 ml_sec_domain_classification = 3
                             else:
                                 if graymarket_label:
-                                    self.__logger.info('domain is a comercial target')
+                                    #self.__logger.info('domain is a comercial target')
                                     ml_sec_domain_classification = dict_graymarket[graymarket_label]
                                 else:
                                     ml_sec_domain_classification = 9
                     else:
                         if ad_density and tld_poor:
-                            self.__logger.info('domain is a MFA')
+                            # self.__logger.info('domain is a MFA')
                             ml_sec_domain_classification = 3
                         else:
                             if graymarket_label:
-                                self.__logger.info('domain is a comercial target')
+                                # self.__logger.info('domain is a comercial target')
                                 ml_sec_domain_classification = dict_graymarket[graymarket_label]
                             else:
                                 ml_sec_domain_classification = 9
@@ -142,23 +142,42 @@ class For_no_redirect_domains :
             raise
         else:
             # sql_string = """select * from domain_discovery dd  where online_status = 'Online' and dd.status_details = 'Bulk-check' order by dd.disc_domain_id limit 5000"""
+            # sql_string = """
+            #                 select sd.sec_domain_id ,
+            #                 sd.sec_domain,
+            #                 sd.ssl_poor,
+            #                 sd.high_traffic,
+            #                 sd.is_ecommerce,
+            #                 sd.mfa_engagement,
+            #                 sd.has_affiliate_handoff,
+            #                 sd.graymarket_label,
+            #                 sd.ad_density,
+            #                 sd.tld_poor,
+            #                 sd.is_high_risk_geo
+            #                 from secondary_domains sd
+            #                 where ml_sec_domain_classification is null
+            #                 and sd.online_status ='Online'
+            #                 and sd.redirect_domain = False
+            #                  """
             sql_string = """
-                            select sd.sec_domain_id ,
-                            sd.sec_domain,
-                            sd.ssl_poor,
-                            sd.high_traffic,
-                            sd.is_ecommerce,
-                            sd.mfa_engagement,
-                            sd.has_affiliate_handoff,
-                            sd.graymarket_label,
-                            sd.ad_density,
-                            sd.tld_poor,
-                            sd.is_high_risk_geo  
-                            from secondary_domains sd  
-                            where ml_sec_domain_classification is null
-                            and sd.online_status ='Online'
-                            and sd.redirect_domain = False 
-                             """
+            select distinct sd.sec_domain_id ,
+            sd.sec_domain,
+            sd.ssl_poor,
+            sd.high_traffic,
+            sd.is_ecommerce,
+            sd.mfa_engagement,
+            sd.has_affiliate_handoff,
+            sd.graymarket_label,
+            sd.ad_density,
+            sd.tld_poor,
+            sd.is_high_risk_geo
+            from secondary_domains sd  
+            inner join address_bar_url abu on sd.sec_domain = abu.address_bar_domain 
+            where
+            abu.landing_page is true
+            and ml_sec_domain_classification is null
+            and sd.online_status ='Online'
+            """
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data
