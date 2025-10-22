@@ -9,10 +9,13 @@ from features import high_traffic
 from features import ad_density
 from features import is_high_risk_geo
 from features import cleaner_domains
+from features import google_search_results
 import for_no_redirect_domains
 # import mfa_engagement_class
 from features import features_to_search
 import addres_bar_class
+import sw_offline_class
+
 
 if __name__ == '__main__':
     # secondary_domains_crawler.secondary_domains_crawler().crawl()
@@ -25,7 +28,9 @@ if __name__ == '__main__':
     #high_traffic.high_traffic().main()
     #ad_density.ad_density().main()
     # is_high_risk_geo.is_high_risk_geo().main()
-    for_no_redirect_domains.For_no_redirect_domains().main()
+    # for_no_redirect_domains.For_no_redirect_domains().main()
     # cleaner_domains.CleanerDomain().main()
     # mfa_engagement_class.mfa_engagement_class().main()
     # features_to_search.main()
+    # sw_offline_class.Sw_offline_class().main()
+    google_search_results.Google_Search_results().main()
