@@ -24,7 +24,7 @@ class Google_Search_results:
             sec_domain = dom['sec_domain']
             self.__logger.info(f'------scrape site {dom} - ')
 
-            google_search_result = self.get_subdomains_oxy_api(sec_domain)
+            google_search_result = self.get_subdomains_oxy_api_claude(sec_domain)
             self.update_secondary_domain(sec_domain_id, google_search_result)
 
 
@@ -44,13 +44,20 @@ class Google_Search_results:
         else:
             # sql_string = """select * from domain_discovery dd  where online_status = 'Online' and dd.status_details = 'Bulk-check' order by dd.disc_domain_id limit 5000"""
             sql_string = """
-                select sd.sec_domain_id , sd.sec_domain  
-                from secondary_domains sd
+                select sd.sec_domain_id , sd.sec_domain_root
+                 from secondary_domains sd
                 WHERE sec_domain_source = 'SimilarWeb'
-                  -- AND ml_sec_domain_classification IS NULL
+                  AND ml_sec_domain_classification not in (1, 2)
                   AND online_status IN ('Blocked', 'Offline', 'Online')
-                  and sd.google_search_results is null
+                  and ( sd.google_search_results is null or sd.google_search_results = 10)
              """
+
+            # sql_string = """
+            #                 select sd.sec_domain_id , sd.sec_domain
+            #                 from secondary_domains sd
+            #                 WHERE
+            #                 sd.sec_domain = 'whitebit.com'
+            #              """
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data
@@ -120,7 +127,8 @@ class Google_Search_results:
                 "domain": "com",
                 "query": query,
                 "geo_location": country,
-                "parse": True
+                "parse": True,
+                "pages": 20
             })
             headers = {
                 'Content-Type': 'application/json',
@@ -157,3 +165,96 @@ class Google_Search_results:
         except Exception as e:
             self.__logger.error(f'Error on delete duplicates subdomains - Error {e}')
             return lista_sin_repetidos
+
+    def get_subdomains_oxy_api_claude(self, domain_source):
+        """
+        Obtiene subdominios de un dominio usando la API de Oxylabs
+        Itera sobre todas las páginas de resultados
+
+        Args:
+            domain_source (str): Dominio principal a buscar
+
+        Returns:
+            tuple: (número de resultados, lista de subdominios únicos)
+        """
+        try:
+            appearance_count = 0
+            list_dom = []
+            country = "United States"
+            url = "https://realtime.oxylabs.io/v1/queries"
+            query = f'site:{domain_source}'
+
+            payload = json.dumps({
+                "source": "google_search",
+                "domain": "com",
+                "query": query,
+                "geo_location": country,
+                "parse": True,
+                "pages": 10
+            })
+
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': 'Basic Y2hfYWRfc25pZmZlcl9pc2ZQWjpNM00rRVhzazlNTm8zcExQZmFM' # ⚠️ Reemplaza con tu credencial
+            }
+
+            response = requests.post(url, headers=headers, data=payload, timeout=60)
+            response.raise_for_status()
+
+            json_response = response.json()
+
+            # Verificar que existan resultados
+            if 'results' not in json_response or not json_response['results']:
+                self.__logger.warning(f"No se encontraron resultados para {domain_source}")
+                return 0, 0, []
+
+            # ⭐ ITERAR SOBRE TODAS LAS PÁGINAS
+            from urllib.parse import urlparse
+
+            for page_result in json_response['results']:
+                # Verificar que la página tenga resultados orgánicos
+                if 'content' not in page_result:
+                    continue
+
+                if 'results' not in page_result['content']:
+                    continue
+
+                if 'organic' not in page_result['content']['results']:
+                    continue
+
+                organic_results = page_result['content']['results']['organic']
+
+                # Procesar cada resultado de la página
+                for result in organic_results:
+                    if 'url' in result:
+                        parsed_url = urlparse(result['url'])
+                        subdomain = parsed_url.netloc
+
+                        # ⭐ Contar TODAS las apariciones (incluso duplicados)
+                        if domain_source in subdomain:
+                            appearance_count += 1
+
+                            # Agregar a lista única solo si no existe
+                            if subdomain not in list_dom:
+                                list_dom.append(subdomain)
+
+            num_unique = len(list_dom)
+
+            print(f"Total de apariciones (con duplicados): {appearance_count}")
+            print(f"Subdominios únicos encontrados: {num_unique}")
+            print(f"Lista de subdominios únicos: {list_dom}")
+
+            return appearance_count, num_unique, list_dom
+
+        except requests.exceptions.Timeout:
+            self.__logger.error(f"Timeout al consultar API para {domain_source}")
+            return 0, 0, []
+        except requests.exceptions.RequestException as e:
+            self.__logger.error(f"Error en la petición HTTP: {e}")
+            return 0, 0, []
+        except KeyError as e:
+            self.__logger.error(f"Error parseando respuesta - clave faltante: {e}")
+            return 0, 0, []
+        except Exception as e:
+            self.__logger.error(f"Error inesperado obteniendo subdominios: {e}")
+            return 0, 0, []
