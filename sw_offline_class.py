@@ -35,8 +35,6 @@ class Sw_offline_class:
             FROM secondary_domains sd
             WHERE
               sd.sec_domain_source = 'SimilarWeb'
-              AND sd.ml_sec_domain_classification IS NULL
-              AND sd.online_status IN ('Blocked', 'Offline')
           ),
           -- CTE to filter domains by traffic source: direct + referrals >= 40% and organic < 20%
           traffic_sources AS (
@@ -201,23 +199,28 @@ class Sw_offline_class:
           )
         -- Main query with 4 key metrics
         SELECT
-          cl.destination_domain AS "Referral Destination Domain",
           ROUND(AVG(ts.direct_plus_referrals), 2) AS "% Direct+Referrals",
           ROUND(SUM(cl.inf_referral_traffic)::NUMERIC / NULLIF(SUM(cl.total_referral_traffic), 0), 2) AS "% Referrals Infringing",
           ROUND(SUM(cl.cust_inf_referral_traffic)::NUMERIC / NULLIF(SUM(cl.total_referral_traffic), 0), 2) AS "% Referrals CH Customer Infringing",
           ROUND(SUM(cl.adult_referral_traffic)::NUMERIC / NULLIF(SUM(cl.total_referral_traffic), 0), 2) AS "% Referrals Adult",
           SUM(cl.total_referral_traffic) AS "Total Referral Traffic",
-          MAX(cl.last_seen) AS "Last Active",
-          sd.sec_domain_id
+          sd.sec_domain_id,
+          sd.google_search_results,
+          sd.online_status,
+          sd.sec_domain_root,
+          sd.exc_domain_id
         FROM
           combined_list cl
           INNER JOIN traffic_sources ts ON cl.d_sec_domain_id = ts.sec_domain_id
           JOIN secondary_domains sd on cl.d_sec_domain_id = sd.sec_domain_id
         GROUP BY
-          cl.destination_domain,
-          sd.sec_domain_id 
+          sd.sec_domain_id,
+          sd.google_search_results,
+          sd.online_status,
+          sd.sec_domain_root,
+          sd.exc_domain_id
         ORDER BY
-          SUM(cl.total_referral_traffic) DESC
+          SUM(cl.total_referral_traffic) desc
         """)
 
         # 3) Ejecutar con Pandas (sin pasar "params" extra)
@@ -225,14 +228,55 @@ class Sw_offline_class:
         with alchemyEngine.connect() as conn:
             sw_offline = pd.read_sql_query(sql, con=conn)
 
+        def check_domains(row):
+            # chech exclude domain
+            if pd.notna(row['exc_domain_id']):
+                return 4
 
-        sw_offline.query("% Referrals Infringing")
+            # chequear google_search_results
+            if pd.notna(row['google_search_results']):  # ver si este chequeo funciona bien
+                # offline search
+                if row['google_search_results'] < 2:
+                    return 2
+                # online search
+                elif (row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2) or row[
+                    '% Direct+Referrals'] > 0.6:
+                    # chequear si esta offline o bloqueado
+                    if row['online_status'] == "Online":
+                        if row['google_search_results'] < 10:
+                            return 2
+                        elif row['google_search_results'] >= 10 and row['google_search_results'] < 50:
+                            return 3
+                        else:
+                            return 4
+                    elif row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker",
+                                                  "Offline--Bulk-check", "Offline | Ad Sniffer"]:
+                        return 2
+                # casos no previstos
+                else:
+                    return
+            # Sitios sin google_search_results
+            elif (row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2) or row[
+                '% Direct+Referrals'] > 0.6:
+                # chequear si esta offline o bloqueado
+                if row['online_status'] == "Online":
+                    return 3
+                elif row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker", "Offline--Bulk-check",
+                                              "Offline | Ad Sniffer"]:
+                    return 2
+            # casos no previstos
+            else:
+                return
+
+        sw_offline['ml_sec_domain_classification'] = sw_offline.apply(lambda row: check_domains(row), axis=1)
+
 
         print(sw_offline)
 
         # df_filtered = engagement[['sec_domain_id', 'mfa_engagement']]
         # data_to_save = df_filtered.to_dict('records')
         # self.update_domains(data_to_save)
+
 
     def update_domains(self, save_data):
         """

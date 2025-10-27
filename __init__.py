@@ -32,5 +32,5 @@ if __name__ == '__main__':
     # cleaner_domains.CleanerDomain().main()
     # mfa_engagement_class.mfa_engagement_class().main()
     # features_to_search.main()
-    # sw_offline_class.Sw_offline_class().main()
-    google_search_results.Google_Search_results().main()
+    sw_offline_class.Sw_offline_class().main()
+    # google_search_results.Google_Search_results().main()
