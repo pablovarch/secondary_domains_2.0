@@ -113,7 +113,7 @@ class mfa_engagement:
         print(engagement)
         df_filtered = engagement[['sec_domain_id', 'mfa_engagement']]
         data_to_save = df_filtered.to_dict('records')
-        # self.update_domains(data_to_save)
+        self.update_domains(data_to_save)
 
         def duration_to_seconds(x, two_part='auto'):
             """
