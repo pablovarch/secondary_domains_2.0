@@ -15,9 +15,13 @@ import for_no_redirect_domains
 from features import features_to_search
 import addres_bar_class
 import sw_offline_class
+import jarm_rules
+import rude_rules
 
 
 if __name__ == '__main__':
+    jarm_rules.Jarm_processing().main()
+    rude_rules.Betting_piracy().main()
     # secondary_domains_crawler.secondary_domains_crawler().crawl()
     # addres_bar_class.Address_bar_class().main()
     # sw_offline_class.Sw_offline_class().main()

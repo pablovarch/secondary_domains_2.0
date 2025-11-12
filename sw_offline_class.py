@@ -256,6 +256,9 @@ class Sw_offline_class:
                         return 2
                 # casos no previstos
                 else:
+                    if row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker", "Offline--Bulk-check",
+                                                "Offline | Ad Sniffer"]:
+                        return 0
                     return
             # Sitios sin google_search_results
             elif row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2 and row[
@@ -268,6 +271,9 @@ class Sw_offline_class:
                     return 2
             # casos no previstos
             else:
+                if row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker", "Offline--Bulk-check",
+                                              "Offline | Ad Sniffer"]:
+                    return 0
                 return
 
         sw_offline['ml_sec_domain_classification'] = sw_offline.apply(lambda row: check_domains(row), axis=1)
