@@ -213,6 +213,8 @@ class Sw_offline_class:
           combined_list cl
           INNER JOIN traffic_sources ts ON cl.d_sec_domain_id = ts.sec_domain_id
           JOIN secondary_domains sd on cl.d_sec_domain_id = sd.sec_domain_id
+        where 
+          sd.ml_sec_domain_classification not in (1) or sd.ml_sec_domain_classification is null
         GROUP BY
           sd.sec_domain_id,
           sd.google_search_results,
@@ -239,7 +241,7 @@ class Sw_offline_class:
                 if row['google_search_results'] < 2:
                     return 2
                 # online search
-                elif (row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2) or row[
+                elif row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2  and row[
                     '% Direct+Referrals'] > 0.6:
                     # chequear si esta offline o bloqueado
                     if row['online_status'] == "Online":
@@ -254,9 +256,12 @@ class Sw_offline_class:
                         return 2
                 # casos no previstos
                 else:
+                    if row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker", "Offline--Bulk-check",
+                                                "Offline | Ad Sniffer"]:
+                        return 0
                     return
             # Sitios sin google_search_results
-            elif (row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2) or row[
+            elif row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2 and row[
                 '% Direct+Referrals'] > 0.6:
                 # chequear si esta offline o bloqueado
                 if row['online_status'] == "Online":
@@ -266,16 +271,18 @@ class Sw_offline_class:
                     return 2
             # casos no previstos
             else:
+                if row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker", "Offline--Bulk-check",
+                                              "Offline | Ad Sniffer"]:
+                    return 0
                 return
 
         sw_offline['ml_sec_domain_classification'] = sw_offline.apply(lambda row: check_domains(row), axis=1)
+        sw_offline.dropna(subset='ml_sec_domain_classification',inplace=True)
 
+        df_filtered = sw_offline[['sec_domain_id', 'ml_sec_domain_classification']]
+        data_to_save = df_filtered.to_dict('records')
+        self.update_domains(data_to_save)
 
-        print(sw_offline)
-
-        # df_filtered = engagement[['sec_domain_id', 'mfa_engagement']]
-        # data_to_save = df_filtered.to_dict('records')
-        # self.update_domains(data_to_save)
 
 
     def update_domains(self, save_data):
@@ -298,7 +305,7 @@ class Sw_offline_class:
 
             # Preparamos los valores (tuplas de domain_id y valor nuevo)
             data_to_update = [
-                (domain['sec_domain_id'], domain['mfa_engagement']) for domain in save_data
+                (domain['sec_domain_id'], domain['ml_sec_domain_classification']) for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
@@ -312,7 +319,7 @@ class Sw_offline_class:
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
-                SET mfa_engagement = u.value_to_update
+                SET ml_sec_domain_classification = u.value_to_update
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """

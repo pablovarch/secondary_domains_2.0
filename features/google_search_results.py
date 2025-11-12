@@ -206,7 +206,7 @@ class Google_Search_results:
             # Verificar que existan resultados
             if 'results' not in json_response or not json_response['results']:
                 self.__logger.warning(f"No se encontraron resultados para {domain_source}")
-                return 0, 0, []
+                return 0
 
             # ⭐ ITERAR SOBRE TODAS LAS PÁGINAS
             from urllib.parse import urlparse
@@ -240,21 +240,21 @@ class Google_Search_results:
 
             num_unique = len(list_dom)
 
-            print(f"Total de apariciones (con duplicados): {appearance_count}")
-            print(f"Subdominios únicos encontrados: {num_unique}")
-            print(f"Lista de subdominios únicos: {list_dom}")
+            self.__logger.info(f"Total de apariciones (con duplicados): {appearance_count}")
+            self.__logger.info(f"Subdominios únicos encontrados: {num_unique}")
+            self.__logger.info(f"Lista de subdominios únicos: {list_dom}")
 
-            return appearance_count, num_unique, list_dom
+            return appearance_count
 
         except requests.exceptions.Timeout:
             self.__logger.error(f"Timeout al consultar API para {domain_source}")
-            return 0, 0, []
+            return 0
         except requests.exceptions.RequestException as e:
             self.__logger.error(f"Error en la petición HTTP: {e}")
-            return 0, 0, []
+            return 0
         except KeyError as e:
             self.__logger.error(f"Error parseando respuesta - clave faltante: {e}")
-            return 0, 0, []
+            return 0
         except Exception as e:
             self.__logger.error(f"Error inesperado obteniendo subdominios: {e}")
-            return 0, 0, []
+            return 0
