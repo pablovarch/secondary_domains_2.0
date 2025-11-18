@@ -20,10 +20,11 @@ import rude_rules
 
 
 if __name__ == '__main__':
-    jarm_rules.Jarm_processing().main()
-    rude_rules.Betting_piracy().main()
+    # jarm_rules.Jarm_processing().main()
+    # rude_rules.Betting_piracy().main()
     # secondary_domains_crawler.secondary_domains_crawler().crawl()
     # addres_bar_class.Address_bar_class().main()
+    google_search_results.Google_Search_results().main()
     # sw_offline_class.Sw_offline_class().main()
     # site_map.site_map().main()
     # tld.tld().main()
@@ -31,10 +32,10 @@ if __name__ == '__main__':
     # html_fields.html_fields().main()
     # mfa_engagement.mfa_engagement().main()
     # high_traffic.high_traffic().main()
-    #ad_density.ad_density().main()
+    # ad_density.ad_density().main()
     # is_high_risk_geo.is_high_risk_geo().main()
     # for_no_redirect_domains.For_no_redirect_domains().main()
-    # cleaner_domains.CleanerDomain().main()
     # mfa_engagement_class.mfa_engagement_class().main()
-    # features_to_search.main()
-    google_search_results.Google_Search_results().main()
+
+
+

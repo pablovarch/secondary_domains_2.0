@@ -1,15 +1,15 @@
-from dependencies import log
-from settings import db_connect, db_connect_df
-import psycopg2
-import pandas as pd
-import numpy as np
-from sqlalchemy import create_engine
-from datetime import datetime
-import re
-from dependencies import log
-import random
 import json
+import urllib.parse
+from settings import db_connect, db_connect_df, bd_apikey
+import psycopg2
+from dependencies import log
+import urllib3
+import urllib.request
+import ssl
+import sys
+import time
 import requests
+ssl._create_default_https_context = ssl._create_unverified_context
 
 
 class Google_Search_results:
@@ -17,15 +17,22 @@ class Google_Search_results:
         self.__logger = log.Log().get_logger(name='Google_Search_results.log')
 
     def main(self):
+        self.__logger.info('Start Google_Search_results script')
         self.__logger.info('getting all secondary_domains')
         list_to_scan = self.get_all_secondary_domains()
         for dom in list_to_scan:
-            sec_domain_id = dom['sec_domain_id']
-            sec_domain = dom['sec_domain']
-            self.__logger.info(f'------scrape site {dom} - ')
+            try:
+                sec_domain_id = dom['sec_domain_id']
+                sec_domain = dom['sec_domain']
 
-            google_search_result = self.get_subdomains_oxy_api_claude(sec_domain)
-            self.update_secondary_domain(sec_domain_id, google_search_result)
+                sec_domain ='m.yangshipin.cn'
+                self.__logger.info(f'------scrape site {dom} - ')
+
+                # google_search_result = self.get_subdomains_oxy_api_claude(sec_domain)
+                google_search_result = self.google_serp_100_results(sec_domain)
+                self.update_secondary_domain(sec_domain_id, google_search_result)
+            except Exception as e:
+                self.__logger.error(f'error on :{dom} - error {e}')
 
 
     def get_all_secondary_domains(self):
@@ -258,3 +265,54 @@ class Google_Search_results:
         except Exception as e:
             self.__logger.error(f"Error inesperado obteniendo subdominios: {e}")
             return 0
+
+    def google_serp_100_results(self,domain_source):
+        try:
+            API_KEY = bd_apikey
+            DATASET_ID = "gd_mfz5x93lmsjjjylob"
+
+            # Step 1: Trigger request
+            trigger_url = f"https://api.brightdata.com/datasets/v3/trigger?dataset_id={DATASET_ID}&include_errors=true"
+            trigger_response = requests.post(
+                trigger_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {API_KEY}",
+                },
+                json=[
+                    {
+                        "url": "https://www.google.com/",
+                        "keyword": f'site:{domain_source}',
+                        "language": "en",
+                        "country": "US",
+                        "start_page": 1,
+                        "end_page": 10,
+                    }
+                ],
+            )
+
+            snapshot_id = trigger_response.json()["snapshot_id"]
+
+            # Step 2: Poll for completion
+            progress = None
+            while progress is None or progress["status"] != "ready":
+                time.sleep(5)  # Wait 5 seconds
+                progress_url = f"https://api.brightdata.com/datasets/v3/progress/{snapshot_id}"
+                progress_response = requests.get(
+                    progress_url,
+                    headers={"Authorization": f"Bearer {API_KEY}"},
+                )
+                progress = progress_response.json()
+
+            # Step 3: Download results
+            download_url = f"https://api.brightdata.com/datasets/v3/snapshot/{snapshot_id}?format=json"
+            download_response = requests.get(
+                download_url,
+                headers={"Authorization": f"Bearer {API_KEY}"},
+            )
+
+            json_result = download_response.json()
+            num_result = len(json_result[0]['organic'])
+            return num_result
+        except Exception as e:
+            self.__logger.info(f'Error on get_subdomains_brightdata: {e}')

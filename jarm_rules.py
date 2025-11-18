@@ -11,7 +11,7 @@ class Jarm_processing:
         self.__logger = log.Log().get_logger(name='jarm_rules.log')
 
     def main(self):
-
+        self.__logger.info('-- starting Jarm rules classifier')
 
         alchemyEngine = create_engine(
             db_connect_df,  # ej: "postgresql+psycopg2://user:pass@host:5432/dbname"

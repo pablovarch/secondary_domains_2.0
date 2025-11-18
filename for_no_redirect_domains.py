@@ -11,6 +11,7 @@ class For_no_redirect_domains :
         self.__logger = log.Log().get_logger(name='no_redirect_domains.log')
 
     def main(self):
+        self.__logger.info('-- starting Tree classifier')
         self.__logger.info('getting all Online domains on secondary_domains')
         list_to_scan = self.get_all_online_secondary_domains()
         dict_graymarket = {
