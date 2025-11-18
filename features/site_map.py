@@ -11,6 +11,7 @@ class site_map :
         self.__logger = log.Log().get_logger(name='sitemap.log')
 
     def main(self):
+        self.__logger.info('Starting site map script')
         self.__logger.info('getting all secondary_domains')
         list_to_scan = self.get_all_secondary_domains()
         for dom in list_to_scan:

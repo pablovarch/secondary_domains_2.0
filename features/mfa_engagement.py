@@ -12,6 +12,7 @@ class mfa_engagement:
         self.__logger = log.Log().get_logger(name='mfa_enagement.log')
 
     def main(self):
+        self.__logger.info('Starting mfa engagement script')
         # Correcting the syntax error by removing the invalid 'DB Connection' line
         alchemyEngine = create_engine(db_connect_df, pool_recycle=3600)
 

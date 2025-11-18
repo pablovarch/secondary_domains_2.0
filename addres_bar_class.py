@@ -7,43 +7,46 @@ from datetime import datetime
 
 
 class Address_bar_class:
+
     def __init__(self):
         self.__logger = log.Log().get_logger(name='address_bar_class.log')
 
     def main(self):
+        self.__logger.info('-- starting Address_bar_class classifier')
         # Correcting the syntax error by removing the invalid 'DB Connection' line
         alchemyEngine = create_engine(db_connect_df, pool_recycle=3600)
 
         dbConnection = alchemyEngine.connect()
         address_bar_source = pd.read_sql("""
-                                WITH t AS (
-                                  SELECT
-                                    session_id,
-                                    ad_event_id,
-                                    tab_num,
-                                    address_bar_num,
-                                    address_bar_url,
-                                    source_domain,
-                                    address_bar_domain,
-                                    MAX(address_bar_num) OVER (
-                                      PARTITION BY session_id, ad_event_id, tab_num
-                                    ) AS grp_max
-                                  FROM address_bar_url
-                                )
-                                SELECT
-                                  session_id,
-                                  ad_event_id,
-                                  tab_num,
-                                  address_bar_num,
-                                  address_bar_url,
-                                  source_domain,
-                                  address_bar_domain
-                                FROM t
-                                WHERE tab_num > 0
-                                  AND source_domain IS DISTINCT FROM address_bar_domain
-                                  AND grp_max > 0
-                                  AND address_bar_num < grp_max
-                                  AND landing_page is False;
+                             WITH t AS (
+                              SELECT
+                                session_id,
+                                ad_event_id,
+                                tab_num,
+                                address_bar_num,
+                                address_bar_url,       -- asegúrate de que el nombre sea exactamente este
+                                source_domain,
+                                address_bar_domain,
+                                landing_page,          -- ← incluirla en el CTE
+                                MAX(address_bar_num) OVER (
+                                  PARTITION BY session_id, ad_event_id, tab_num
+                                ) AS grp_max
+                              FROM address_bar_url
+                            )
+                            SELECT
+                              session_id,
+                              ad_event_id,
+                              tab_num,
+                              address_bar_num,
+                              address_bar_url,
+                              source_domain,
+                              address_bar_domain
+                            FROM t
+                            WHERE tab_num > 0
+                              AND landing_page IS FALSE
+                              AND source_domain IS DISTINCT FROM address_bar_domain
+                              AND grp_max > 0
+                              AND address_bar_num < grp_max;
                                 """, dbConnection)
 
         sec_domains = pd.read_sql("""
@@ -52,7 +55,8 @@ class Address_bar_class:
                                 online_status, 
                                 ml_sec_domain_classification, 
                                 sec_domain_source
-                                FROM secondary_domains
+                                FROM secondary_domains sd
+                                where sd.ml_sec_domain_classification is null
                                 """, dbConnection)
 
         dbConnection.close()

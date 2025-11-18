@@ -10,6 +10,7 @@ class high_traffic:
         self.__logger = log.Log().get_logger(name='high_traffic.log')
 
     def main(self):
+        self.__logger.info('Starting high traffic script')
         # Correcting the syntax error by removing the invalid 'DB Connection' line
         alchemyEngine = create_engine(
             db_connect_df,

@@ -13,7 +13,7 @@ class Betting_piracy:
 
     def main(self):
 
-
+        self.__logger.info('-- starting Rude rules classifier')
         alchemyEngine = create_engine(
             db_connect_df,  # ej: "postgresql+psycopg2://user:pass@host:5432/dbname"
             pool_recycle=3600,

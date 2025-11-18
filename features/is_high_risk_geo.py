@@ -15,6 +15,7 @@ class is_high_risk_geo :
         self.__logger = log.Log().get_logger(name='is_high_risk_geo.log')
 
     def main(self):
+        self.__logger.info('Starting is high risk geo script')
         self.__logger.info('getting all secondary_domains')
         list_to_scan = self.get_all_secondary_domains()
         for dom in list_to_scan:

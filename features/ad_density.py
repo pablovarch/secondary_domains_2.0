@@ -10,6 +10,7 @@ class ad_density:
         self.__logger = log.Log().get_logger(name='ad_Density.log')
 
     def main(self):
+        self.__logger.info('Starting Ad density script')
         # Correcting the syntax error by removing the invalid 'DB Connection' line
         alchemyEngine = create_engine(
             db_connect_df,

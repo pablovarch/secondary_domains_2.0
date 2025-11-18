@@ -13,6 +13,7 @@ class html_fields:
         self.__logger = log.Log().get_logger(name='ad_count.log')
 
     def main(self):
+        self.__logger.info('Starting html fields script')
         self.__logger.info('getting all secondary_domains')
 
         list_to_scan = self.get_all_secondary_domains()

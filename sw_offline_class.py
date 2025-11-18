@@ -13,7 +13,7 @@ class Sw_offline_class:
 
     def main(self):
 
-
+        self.__logger.info('-- starting Sw_offline_class classifier')
         alchemyEngine = create_engine(
             db_connect_df,  # ej: "postgresql+psycopg2://user:pass@host:5432/dbname"
             pool_recycle=3600,
@@ -21,7 +21,7 @@ class Sw_offline_class:
         )
         # Correcting the syntax error by removing the invalid 'DB Connection' line
         sql = text("""
-        WITH
+         WITH
           query_variables AS (
             SELECT
               -- Most recent SimilarWeb Data Month
@@ -34,7 +34,7 @@ class Sw_offline_class:
               sd.sec_domain AS destination_domain
             FROM secondary_domains sd
             WHERE
-              sd.sec_domain_source = 'SimilarWeb'
+              sd.sec_domain_source = 'SimilarWeb' or sd.sec_domain_source = 'Ad Sniffer'
           ),
           -- CTE to filter domains by traffic source: direct + referrals >= 40% and organic < 20%
           traffic_sources AS (
@@ -43,9 +43,7 @@ class Sw_offline_class:
               (dts.direct_share + dts.referrals_share) AS direct_plus_referrals
             FROM secondary_domains sd
             INNER JOIN dim_traffic_sources dts ON sd.sec_domain_id = dts.sec_domain_id
-            WHERE
-              dts.direct_share + dts.referrals_share >= 0.4
-              AND dts.organic_search_share < 0.2
+           
           ),
           -- Filter out destination domains that are in ad_domains (except approved companies)
           valid_destination_domains AS (
@@ -208,7 +206,8 @@ class Sw_offline_class:
           sd.google_search_results,
           sd.online_status,
           sd.sec_domain_root,
-          sd.exc_domain_id
+          sd.exc_domain_id,
+          sd.sec_domain_source
         FROM
           combined_list cl
           INNER JOIN traffic_sources ts ON cl.d_sec_domain_id = ts.sec_domain_id
@@ -220,7 +219,8 @@ class Sw_offline_class:
           sd.google_search_results,
           sd.online_status,
           sd.sec_domain_root,
-          sd.exc_domain_id
+          sd.exc_domain_id,
+           sd.sec_domain_source
         ORDER BY
           SUM(cl.total_referral_traffic) desc
         """)
@@ -279,7 +279,8 @@ class Sw_offline_class:
         sw_offline['ml_sec_domain_classification'] = sw_offline.apply(lambda row: check_domains(row), axis=1)
         sw_offline.dropna(subset='ml_sec_domain_classification',inplace=True)
 
-        df_filtered = sw_offline[['sec_domain_id', 'ml_sec_domain_classification']]
+        sw_offline['sec_domain_source'] = 'SimilarWeb'
+        df_filtered = sw_offline[['sec_domain_id', 'ml_sec_domain_classification','sec_domain_source' ]]
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
 
@@ -305,21 +306,22 @@ class Sw_offline_class:
 
             # Preparamos los valores (tuplas de domain_id y valor nuevo)
             data_to_update = [
-                (domain['sec_domain_id'], domain['ml_sec_domain_classification']) for domain in save_data
+                (domain['sec_domain_id'], domain['ml_sec_domain_classification'],domain['sec_domain_source'] ) for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
-            values_template = ",".join(["(%s, %s)"] * len(data_to_update))
+            values_template = ",".join(["(%s, %s, %s)"] * len(data_to_update))
             flat_values = []
             for tup in data_to_update:
                 flat_values.extend(tup)  # aplanamos la lista para pasar a execute
 
             sql = f"""
-                WITH updates (sec_domain_id, value_to_update) AS (
+                WITH updates (sec_domain_id, value_to_update,sec_domain_source_to_update ) AS (
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
                 SET ml_sec_domain_classification = u.value_to_update
+                set sec_domain_source = u.sec_domain_source_to_update
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """
