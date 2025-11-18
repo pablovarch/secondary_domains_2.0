@@ -24,12 +24,11 @@ class Google_Search_results:
             try:
                 sec_domain_id = dom['sec_domain_id']
                 sec_domain = dom['sec_domain']
-
-                sec_domain ='m.yangshipin.cn'
                 self.__logger.info(f'------scrape site {dom} - ')
 
                 # google_search_result = self.get_subdomains_oxy_api_claude(sec_domain)
                 google_search_result = self.google_serp_100_results(sec_domain)
+                self.__logger.info(f"update num results: {google_search_result}")
                 self.update_secondary_domain(sec_domain_id, google_search_result)
             except Exception as e:
                 self.__logger.error(f'error on :{dom} - error {e}')
