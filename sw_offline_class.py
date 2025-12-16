@@ -279,8 +279,10 @@ class Sw_offline_class:
         sw_offline['ml_sec_domain_classification'] = sw_offline.apply(lambda row: check_domains(row), axis=1)
         sw_offline.dropna(subset='ml_sec_domain_classification',inplace=True)
 
-        sw_offline['sec_domain_source'] = 'SimilarWeb'
-        df_filtered = sw_offline[['sec_domain_id', 'ml_sec_domain_classification','sec_domain_source' ]]
+
+        df_filtered = sw_offline[['sec_domain_id', 'ml_sec_domain_classification']]
+        df_filtered['decision_source'] = 'SimilarWeb'
+        df_filtered['sec_domain_source'] = 'SimilarWeb'
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
 
@@ -306,22 +308,23 @@ class Sw_offline_class:
 
             # Preparamos los valores (tuplas de domain_id y valor nuevo)
             data_to_update = [
-                (domain['sec_domain_id'], domain['ml_sec_domain_classification'],domain['sec_domain_source'] ) for domain in save_data
+                (domain['sec_domain_id'], domain['ml_sec_domain_classification'],domain['sec_domain_source'],domain['decision_source'] ) for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
-            values_template = ",".join(["(%s, %s, %s)"] * len(data_to_update))
+            values_template = ",".join(["(%s, %s, %s, %s)"] * len(data_to_update))
             flat_values = []
             for tup in data_to_update:
                 flat_values.extend(tup)  # aplanamos la lista para pasar a execute
 
             sql = f"""
-                WITH updates (sec_domain_id, value_to_update,sec_domain_source_to_update ) AS (
+                WITH updates (sec_domain_id, value_to_update,sec_domain_source_to_update, decision_source ) AS (
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
-                SET ml_sec_domain_classification = u.value_to_update
-                set sec_domain_source = u.sec_domain_source_to_update
+                SET ml_sec_domain_classification = u.value_to_update,
+                    sec_domain_source = u.sec_domain_source_to_update,
+                    decision_source = u.decision_source
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """

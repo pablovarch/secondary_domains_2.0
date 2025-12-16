@@ -78,16 +78,8 @@ class For_no_redirect_domains :
 
             self.__logger.info(
                 f'update domain - {sec_domain} - ml_sec_domain_classification: {ml_sec_domain_classification}')
-            self.update_secondary_domain(sec_domain_id, ml_sec_domain_classification)
-
-
-
-
-
-
-
-
-
+            decision_source = 'Decision Tree'
+            self.update_secondary_domain(sec_domain_id, ml_sec_domain_classification, decision_source)
 
 
     def is_in_exclude_domains(self, sec_domain):
@@ -196,7 +188,7 @@ class For_no_redirect_domains :
                 conn.close()
                 return list_all_domains
 
-    def update_secondary_domain(self, sec_domain_id,ml_sec_domain_classification ):
+    def update_secondary_domain(self, sec_domain_id,ml_sec_domain_classification, decision_source ):
         try:
             conn = psycopg2.connect(host=db_connect['host'],
                                     database=db_connect['database'],
@@ -211,10 +203,11 @@ class For_no_redirect_domains :
 
             sql_string = f"""
                        UPDATE public.secondary_domains
-                       SET ml_sec_domain_classification = %s 
+                       SET ml_sec_domain_classification = %s,
+                       decision_source = %s
                        WHERE sec_domain_id = %s
                    """
-            data = (ml_sec_domain_classification, sec_domain_id)
+            data = (ml_sec_domain_classification,decision_source, sec_domain_id)
             try:
                 cursor.execute(sql_string, data)
                 conn.commit()

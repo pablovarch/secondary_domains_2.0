@@ -6,12 +6,12 @@ from sqlalchemy import create_engine
 
 # Para Clasificar dominios de Betting y excluir sitios con piracy brand
 
-class Jarm_processing:
+class Block_class:
     def __init__(self):
-        self.__logger = log.Log().get_logger(name='jarm_rules.log')
+        self.__logger = log.Log().get_logger(name='Block_class.log')
 
     def main(self):
-        self.__logger.info('-- starting Jarm rules classifier')
+        self.__logger.info('-- starting Block_class classifier')
 
         alchemyEngine = create_engine(
             db_connect_df,  # ej: "postgresql+psycopg2://user:pass@host:5432/dbname"
@@ -20,20 +20,22 @@ class Jarm_processing:
         )
         # Correcting the syntax error by removing the invalid 'DB Connection' line
         with alchemyEngine.connect() as conn:  
-            sec_domain = pd.read_sql(""" select sec_domain_id,sec_domain, exc_domain_id, google_search_results, online_status, redirect_domain from secondary_domains 
-            where ml_sec_domain_classification is null
-            and sec_domain_source = 'Domain Telemetry'
+            sec_domain = pd.read_sql(""" select sec_domain_id,sec_domain, exc_domain_id, google_search_results, online_status, redirect_domain from secondary_domains sd
+            where ml_sec_domain_classification is null           
             and google_search_results is not null
-            -- and online_status is not null""", conn)
+            and online_status is not null and sd.online_status !='Online' and sd.online_status !='Online-Bulk-check'""", conn)
 
 
         def proccess_domains(row):
-            if row["google_search_results"] <= 2:
+            if row["redirect_domain"]:
                 return 2
-            if row['google_search_results'] > 2 and row['google_search_results'] < 50:
-                return 3
-            if row['google_search_results'] >= 50:
-                return 4
+            else:
+                if row["google_search_results"] <= 2:
+                    return 2
+                if row['google_search_results'] > 2 and row['google_search_results'] < 50:
+                    return 3
+                if row['google_search_results'] >= 50:
+                    return 4
         
         sec_domain['ml_sec_domain_classification'] = sec_domain.apply(proccess_domains, axis=1)
         
