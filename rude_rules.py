@@ -65,7 +65,9 @@ class Betting_piracy:
     
         sec_domain = sec_domain.dropna(subset=['ml_sec_domain_classification'])
 
+
         df_filtered = sec_domain[['sec_domain_id', 'ml_sec_domain_classification']]
+        df_filtered['decision_source'] = 'Rude Rules'
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
 
@@ -91,21 +93,22 @@ class Betting_piracy:
 
             # Preparamos los valores (tuplas de domain_id y valor nuevo)
             data_to_update = [
-                (domain['sec_domain_id'], domain['ml_sec_domain_classification']) for domain in save_data
+                (domain['sec_domain_id'], domain['ml_sec_domain_classification'], domain['decision_source']) for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
-            values_template = ",".join(["(%s, %s)"] * len(data_to_update))
+            values_template = ",".join(["(%s, %s, %s)"] * len(data_to_update))
             flat_values = []
             for tup in data_to_update:
                 flat_values.extend(tup)  # aplanamos la lista para pasar a execute
 
             sql = f"""
-                WITH updates (sec_domain_id, value_to_update) AS (
+                WITH updates (sec_domain_id, ml_sec_domain_classification, decision_source) AS (
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
-                SET ml_sec_domain_classification = u.value_to_update
+                SET ml_sec_domain_classification = u.ml_sec_domain_classification
+                decision_source = u.decision_source
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """

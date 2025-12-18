@@ -5,6 +5,8 @@ import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime, time
 import requests
+import time as time_module
+
 
 class ssl_analyzer :
     def __init__(self):
@@ -85,7 +87,7 @@ class ssl_analyzer :
                     all_records = []  # Limpiar lista
 
                 # Pausa para no saturar la API
-                time.sleep(1)
+                time_module.sleep(1)
 
             except requests.exceptions.RequestException as e:
                 print(f"✗ Error de conexión con {domain}: {e}")

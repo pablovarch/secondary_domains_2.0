@@ -8,6 +8,22 @@ from datetime import datetime
 
 
 class Sw_offline_class:
+    # Umbrales configurables para detección de FP Risk en Referral Cloaking
+    FP_RISK_THRESHOLDS = {
+        'traffic_high': 10_000_000,
+        'organic_high': 0.40,
+        'organic_medium': 0.30,
+        'direct_balanced': 0.60,
+        'referrals_low': 0.25,
+        'display_ads_low': 0.10,
+    }
+
+    # Estados considerados como offline/bloqueado
+    OFFLINE_STATUSES = [
+        "Offline", "Blocked", "Offline | Status Checker",
+        "Offline--Bulk-check", "Offline | Ad Sniffer"
+    ]
+
     def __init__(self):
         self.__logger = log.Log().get_logger(name='Sw_offline_class.log')
 
@@ -230,6 +246,90 @@ class Sw_offline_class:
         with alchemyEngine.connect() as conn:
             sw_offline = pd.read_sql_query(sql, con=conn)
 
+        # 4) Query secundaria para métricas de FP Risk
+        sql_fp_metrics = text("""
+            SELECT
+                sd.sec_domain_id,
+                ROUND(MAX(dts.organic_search_share), 2) AS organic_search_share,
+                ROUND(AVG(dts.direct_share), 2) AS direct_share,
+                ROUND(AVG(dts.referrals_share), 2) AS referrals_share,
+                ROUND(AVG(dts.display_ads_share), 2) AS display_ads_share,
+                COALESCE(SUM(dt.traffic), 0) AS total_traffic
+            FROM
+                secondary_domains sd
+                LEFT JOIN dim_traffic_sources dts ON sd.sec_domain_id = dts.sec_domain_id
+                LEFT JOIN dim_traffic dt ON sd.sec_domain_id = dt.sec_domain_id AND dt.domain_country = 'World'
+            WHERE
+                sd.sec_domain_id IN :sec_domain_ids
+            GROUP BY
+                sd.sec_domain_id
+        """)
+
+        # Ejecutar query secundaria solo si hay dominios
+        if not sw_offline.empty:
+            sec_domain_ids = tuple(sw_offline['sec_domain_id'].tolist())
+            with alchemyEngine.connect() as conn:
+                fp_metrics = pd.read_sql_query(
+                    sql_fp_metrics,
+                    con=conn,
+                    params={'sec_domain_ids': sec_domain_ids}
+                )
+            # Merge de métricas FP Risk con el DataFrame principal
+            sw_offline = sw_offline.merge(fp_metrics, on='sec_domain_id', how='left')
+        else:
+            self.__logger.info('No domains to process')
+            return
+
+        # Contadores para logging de FP Risk
+        fp_risk_counts = {
+            'traffic_high': 0,
+            'organic_high': 0,
+            'balanced_profile': 0,
+            'balanced_organic': 0,
+            'total_excluded': 0
+        }
+        fp_risk_domains = []  # Lista de sec_domain_id excluidos
+
+        # Función para detectar FP Risk en clasificación Referral Cloaking
+        def is_fp_risk(row):
+            """Detecta si un dominio tiene perfil de falso positivo para Referral Cloaking."""
+            thresholds = self.FP_RISK_THRESHOLDS
+            
+            traffic = row.get('total_traffic', 0) or 0
+            organic = row.get('organic_search_share', 0) or 0
+            direct = row.get('direct_share', 0) or 0
+            referrals = row.get('referrals_share', 0) or 0
+            display_ads = row.get('display_ads_share', 0) or 0
+            sec_domain_id = row.get('sec_domain_id', None)
+            
+            # Condiciones de FP Risk (cualquiera dispara)
+            if traffic > thresholds['traffic_high']:
+                fp_risk_counts['traffic_high'] += 1
+                fp_risk_counts['total_excluded'] += 1
+                fp_risk_domains.append({'sec_domain_id': sec_domain_id, 'reason': 'traffic_high', 'value': traffic})
+                return True
+            if organic >= thresholds['organic_high']:
+                fp_risk_counts['organic_high'] += 1
+                fp_risk_counts['total_excluded'] += 1
+                fp_risk_domains.append({'sec_domain_id': sec_domain_id, 'reason': 'organic_high', 'value': organic})
+                return True
+            if (direct <= thresholds['direct_balanced'] and 
+                referrals <= thresholds['referrals_low'] and 
+                display_ads <= thresholds['display_ads_low']):
+                fp_risk_counts['balanced_profile'] += 1
+                fp_risk_counts['total_excluded'] += 1
+                fp_risk_domains.append({'sec_domain_id': sec_domain_id, 'reason': 'balanced_profile', 'value': f'd:{direct}/r:{referrals}/da:{display_ads}'})
+                return True
+            if (direct <= thresholds['direct_balanced'] and 
+                referrals <= thresholds['referrals_low'] and 
+                organic >= thresholds['organic_medium']):
+                fp_risk_counts['balanced_organic'] += 1
+                fp_risk_counts['total_excluded'] += 1
+                fp_risk_domains.append({'sec_domain_id': sec_domain_id, 'reason': 'balanced_organic', 'value': f'd:{direct}/r:{referrals}/o:{organic}'})
+                return True
+            
+            return False
+
         def check_domains(row):
             # chech exclude domain
             if pd.notna(row['exc_domain_id']):
@@ -239,6 +339,9 @@ class Sw_offline_class:
             if pd.notna(row['google_search_results']):  # ver si este chequeo funciona bien
                 # offline search
                 if row['google_search_results'] < 2:
+                    # Validar FP Risk antes de clasificar como 2
+                    if is_fp_risk(row):
+                        return None
                     return 2
                 # online search
                 elif row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2  and row[
@@ -246,39 +349,60 @@ class Sw_offline_class:
                     # chequear si esta offline o bloqueado
                     if row['online_status'] == "Online":
                         if row['google_search_results'] < 10:
+                            # Validar FP Risk antes de clasificar como 2
+                            if is_fp_risk(row):
+                                return None
                             return 2
                         elif row['google_search_results'] >= 10 and row['google_search_results'] < 50:
                             return 3
                         else:
                             return 4
-                    elif row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker",
-                                                  "Offline--Bulk-check", "Offline | Ad Sniffer"]:
+                    elif row['online_status'] in self.OFFLINE_STATUSES:
+                        # Validar FP Risk antes de clasificar como 2
+                        if is_fp_risk(row):
+                            return None
                         return 2
                 # casos no previstos
                 else:
-                    if row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker", "Offline--Bulk-check",
-                                                "Offline | Ad Sniffer"]:
+                    if row['online_status'] in self.OFFLINE_STATUSES:
                         return 0
-                    return
+                    return None
             # Sitios sin google_search_results
             elif row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2 and row[
                 '% Direct+Referrals'] > 0.6:
                 # chequear si esta offline o bloqueado
                 if row['online_status'] == "Online":
                     return 3
-                elif row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker", "Offline--Bulk-check",
-                                              "Offline | Ad Sniffer"]:
+                elif row['online_status'] in self.OFFLINE_STATUSES:
+                    # Validar FP Risk antes de clasificar como 2
+                    if is_fp_risk(row):
+                        return None
                     return 2
             # casos no previstos
             else:
-                if row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker", "Offline--Bulk-check",
-                                              "Offline | Ad Sniffer"]:
+                if row['online_status'] in self.OFFLINE_STATUSES:
                     return 0
-                return
+                return None
 
         sw_offline['ml_sec_domain_classification'] = sw_offline.apply(lambda row: check_domains(row), axis=1)
+        
+        # Logging de FP Risk excluidos
+        self.__logger.info(f"-- FP Risk Summary: {fp_risk_counts['total_excluded']} domains excluded from Referral Cloaking classification")
+        self.__logger.info(f"   - traffic_high (>10M): {fp_risk_counts['traffic_high']}")
+        self.__logger.info(f"   - organic_high (>=40%): {fp_risk_counts['organic_high']}")
+        self.__logger.info(f"   - balanced_profile: {fp_risk_counts['balanced_profile']}")
+        self.__logger.info(f"   - balanced_organic: {fp_risk_counts['balanced_organic']}")
+        
+        if fp_risk_domains:
+            self.__logger.debug(f"-- FP Risk domains detail: {fp_risk_domains[:10]}...")  # Primeros 10 para no saturar log
+        
         sw_offline.dropna(subset='ml_sec_domain_classification',inplace=True)
 
+        # Log de clasificaciones finales
+        classification_counts = sw_offline['ml_sec_domain_classification'].value_counts().to_dict()
+        self.__logger.info(f"-- Classification Summary: {len(sw_offline)} domains classified")
+        for class_id, count in sorted(classification_counts.items()):
+            self.__logger.info(f"   - Class {int(class_id)}: {count} domains")
 
         df_filtered = sw_offline[['sec_domain_id', 'ml_sec_domain_classification']]
         df_filtered['decision_source'] = 'SimilarWeb'
