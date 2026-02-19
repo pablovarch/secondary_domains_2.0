@@ -25,11 +25,10 @@ class Google_Search_results:
                 sec_domain_id = dom['sec_domain_id']
                 sec_domain = dom['sec_domain']
                 self.__logger.info(f'------scrape site {dom} - ')
-                sec_domain = 'uqkcroib.com'
-                # google_search_result = self.get_subdomains_oxy_api_claude(sec_domain)
-                google_search_result = self.google_serp_100_results(sec_domain)
+                google_search_result = self.get_subdomains_oxy_api_claude(sec_domain)
+                # google_search_result = self.google_serp_100_results(sec_domain)
                 self.__logger.info(f"update num results: {google_search_result}")
-                # self.update_secondary_domain(sec_domain_id, google_search_result)
+                self.update_secondary_domain(sec_domain_id, google_search_result)
             except Exception as e:
                 self.__logger.error(f'error on :{dom} - error {e}')
 
@@ -49,21 +48,20 @@ class Google_Search_results:
             raise
         else:
             # sql_string = """select * from domain_discovery dd  where online_status = 'Online' and dd.status_details = 'Bulk-check' order by dd.disc_domain_id limit 5000"""
-            sql_string = """
-                select sd.sec_domain_id , sd.sec_domain_root
-                 from secondary_domains sd
-                WHERE sec_domain_source = 'SimilarWeb'
-                  AND ml_sec_domain_classification not in (1, 2)
-                  AND online_status IN ('Blocked', 'Offline', 'Online')
-                  and ( sd.google_search_results is null or sd.google_search_results = 10)
-             """
-
             # sql_string = """
-            #                 select sd.sec_domain_id , sd.sec_domain
-            #                 from secondary_domains sd
-            #                 WHERE
-            #                 sd.sec_domain = 'whitebit.com'
-            #              """
+            #     select sd.sec_domain_id , sd.sec_domain_root
+            #      from secondary_domains sd
+            #     WHERE sec_domain_source = 'SimilarWeb'
+            #       AND ml_sec_domain_classification not in (1, 2)
+            #       AND online_status IN ('Blocked', 'Offline', 'Online')
+            #       and ( sd.google_search_results is null or sd.google_search_results = 10)
+            #  """
+
+            sql_string = """
+                            select sd.sec_domain_id , sd.sec_domain
+                            from secondary_domains sd
+                            where sd.sec_domain = 'www.fubo.tv'
+                         """
             list_all_domains = []
             try:
                 # Try to execute the sql_string to save the data
