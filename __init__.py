@@ -17,6 +17,10 @@ import sw_offline_class2
 import jarm_rules
 import rude_rules
 import block_class
+from piracy_class import openai_media_type_sec_domain
+from piracy_class import ssl_analyzer_sec_domain
+from piracy_class import sec_dom_piracy_classifier_v2
+import asyncio
 
 
 if __name__ == '__main__':
@@ -36,7 +40,10 @@ if __name__ == '__main__':
     # ad_density.ad_density().main()
     # is_high_risk_geo.is_high_risk_geo().main()
     # block_class.Block_class().main()
-    for_no_redirect_domains.For_no_redirect_domains().main()
+    asyncio.run(openai_media_type_sec_domain.main())
+    asyncio.run(ssl_analyzer_sec_domain.run_backfill())
+    asyncio.run(sec_dom_piracy_classifier_v2.main())
+    # for_no_redirect_domains.For_no_redirect_domains().main()
 
 
 
