@@ -40,12 +40,18 @@ class ssl_analyzer :
         #     """,
         #                          dbConnection)
 
-        sec_domains_to_extract_ssl = pd.read_sql("""  
-                  select 
-            sec_domain_id,
-            sd.sec_domain 
-        from secondary_domains sd
-        left join domain_ssl_data dsd on sd.sec_domain_root = dsd.requested_domain 
+        sec_domains_to_extract_ssl = pd.read_sql("""
+                  select
+                    sec_domain_id,
+                    sec_domain_root
+                from secondary_domains sd
+                left join domain_ssl_data dsd on sd.sec_domain_root = dsd.requested_domain
+                where
+                    sd.ssl_poor is null
+                    and sd.online_status = 'Online'
+                    -- and sd.redirect_domain = False
+                    and sd.ml_sec_domain_classification is null
+                    and sd.sec_domain_root is not null
                     """,
                                                  dbConnection)
 

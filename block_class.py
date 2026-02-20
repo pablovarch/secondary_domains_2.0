@@ -42,7 +42,7 @@ class Block_class:
         sec_domain = sec_domain.dropna(subset=['ml_sec_domain_classification'])
 
         df_filtered = sec_domain[['sec_domain_id', 'ml_sec_domain_classification']]
-        df_filtered['sec_domain_source'] = 'Offline Class'
+        df_filtered['decision_source'] = 'Offline Class'
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
 

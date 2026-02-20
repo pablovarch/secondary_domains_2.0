@@ -11,75 +11,88 @@ class Playwright:
         self.__logger = log.Log().get_logger(name=constants.log_file['log_name'])
 
     def navigation(self, domain_item, proxy_dict_playwright, random_profile):
+        self.__logger.info(" --- set playwright chromium ---")
+
+        use_proxy = getattr(settings, "proxy", False)
+        proxy_dict = proxy_dict_playwright if use_proxy else None
+
+        browser = None
+        context = None
+        page = None
+
         try:
-            self.__logger.info(
-                f" --- set playwright chromium ---")
-
-            # Inicializa Playwright y crea un contexto
             with sync_playwright() as p:
-                pw: Playwright = p
-                browser = pw.chromium.launch(channel="msedge", headless=False)
-                proxy_dict = None
-                if settings.proxy:
-                        proxy_dict=proxy_dict_playwright
-                context = p.chromium.launch_persistent_context(
-
-
-                    user_data_dir=settings.path_user_data_dir,
-                    headless=False,
-
-                    channel="msedge",
-
-                    args=[
-                        # f"--disable-extensions-except={constants.path_to_extension}",
-                        # f"--load-extension={constants.path_to_extension}",
-                        # f'--profile-directory={constants.user_profile}'
-                        f'--profile-directory={random_profile}',
-                        "--start-fullscreen"
-                    ],
-                    
-                    proxy = proxy_dict,
-
-                )
-                page = context.new_page()
-                page.set_viewport_size({"width": 1920, "height": 1080})
-                
-
-                # Captura el tráfico de red y procesa las solicitudes HTTP
                 try:
+                    # ✅ Proxy GLOBAL en launch (si aplica)
+                    launch_kwargs = {"channel": "msedge", "headless": False}
+                    if proxy_dict is not None:
+                        launch_kwargs["proxy"] = proxy_dict
 
-                    status_dict , dict_feature_domain, html_features = Playwright_traffic.Playwright_traffic().capture_traffic(page, domain_item)
+                    browser = p.chromium.launch(**launch_kwargs)
+
+                    # ✅ Contexto limpio (sin persistencia)
+                    context = browser.new_context()
+
+                    page = context.new_page()
+                    page.set_viewport_size({"width": 1920, "height": 1080})
+
+                    # Captura el tráfico de red y procesa las solicitudes HTTP
+                    status_dict, dict_feature_domain, html_features = (
+                        Playwright_traffic.Playwright_traffic().capture_traffic(page, domain_item)
+                    )
+
+                    # Obtener el tamaño total de la página en píxeles
+                    html_length = None
                     try:
-                        # Obtener el tamaño total de la página en píxeles
-                        page_size = page.evaluate('''() => {
-                                                                           return {
-                                                                               width: document.documentElement.scrollWidth,
-                                                                               height: document.documentElement.scrollHeight
-                                                                           };
-                                                                       }''')
-
+                        page_size = page.evaluate(
+                            """() => {
+                                return {
+                                    width: document.documentElement.scrollWidth,
+                                    height: document.documentElement.scrollHeight
+                                };
+                            }"""
+                        )
                         self.__logger.info(f'Tamaño de la página: {page_size["width"]}x{page_size["height"]} píxeles')
                         html_length = page_size["height"]
-                    except Exception as e:
+                    except Exception:
                         html_length = None
 
-                    # Cierra el navegador y el contexto                    
-                    page.close()
-                    context.close()
-                    browser.close()
-                    return status_dict , dict_feature_domain, html_features , html_length
-                except Exception as e:
-                    list_ad_chains_url = []
+                    return status_dict, dict_feature_domain, html_features, html_length
+
+                except PlaywrightTimeoutError as e:
+                    self.__logger.exception(
+                        f"[PlaywrightTimeoutError] Timeout en navigation domain_item={domain_item}: {e}")
                     raise
-        except Exception as e:
-            # self.__logger.error(f'error on Navigation - create driver - error {e}')
+                except PlaywrightError as e:
+                    self.__logger.exception(
+                        f"[PlaywrightError] Error Playwright en navigation domain_item={domain_item}: {e}")
+                    raise
+                except Exception as e:
+                    self.__logger.exception(
+                        f"[Exception] Error inesperado en navigation domain_item={domain_item}: {e}")
+                    raise
+
+                finally:
+                    # ✅ Cierre seguro
+                    if page is not None:
+                        try:
+                            page.close()
+                        except Exception:
+                            pass
+                    if context is not None:
+                        try:
+                            context.close()
+                        except Exception:
+                            pass
+                    if browser is not None:
+                        try:
+                            browser.close()
+                        except Exception:
+                            pass
+
+        except Exception:
             raise
-        
-        
+
     def save_mhtml(path: str, text: str):
         with open(path, mode='w', encoding='UTF-8', newline='\n') as file:
             file.write(text)
-    
-
-
-

@@ -38,12 +38,8 @@ class secondary_domains_crawler:
                     random_profile = random.choice(settings.profile_list)
 
                     # get proxy data
-                    # proxy_data = self.__proxy.get_proxy_data(coun, list_country_data, self.__list_country_oxy)
-                    # proxy_dict = proxy_data['proxy_dict']
-                    proxy_dict =  {
-                    'server': f"{proxy_zenrows['proxy_host']}:{proxy_zenrows['proxy_port']}",
-                    'username': proxy_zenrows['proxy_user'],
-                    'password': proxy_zenrows['proxy_pass']               }
+                    proxy_data = self.__proxy.get_proxy_data(coun, list_country_data, self.__list_country_oxy)
+                    proxy_dict = proxy_data['proxy_dict']
 
 
                     # navigation
