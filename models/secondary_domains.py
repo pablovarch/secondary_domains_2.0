@@ -106,12 +106,12 @@ class Secondary_domains:
                 where
                 sd.online_status = 'Online-Bulk-check'
                 """
-            sql_string = """SELECT DISTINCT sd.sec_domain_id , sd.sec_domain
-                            FROM secondary_domains sd
-                            -- INNER JOIN exclude_domain_attributes eda ON eda.exc_domain = sd.sec_domain
-                            LEFT JOIN domain_discovery_features ddf ON sd.sec_domain_id = ddf.sec_domain_id
-                            LEFT JOIN secondary_domains_html sdh ON sd.sec_domain_id = sdh.sec_domain_id
-                            ORDER BY sd.sec_domain_id ASC; """
+            sql_string = """SELECT sd.sec_domain_id , sd.sec_domain
+                                        FROM secondary_domains sd
+                                        where sd.online_status is null
+                                        and sd.ml_sec_domain_classification is null
+                                         and sd.added > '2025-12-01'
+                                         """
 
             # sql_string = """
             #                 SELECT sd.sec_domain_id , sd.sec_domain

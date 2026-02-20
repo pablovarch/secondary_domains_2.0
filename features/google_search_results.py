@@ -58,9 +58,14 @@ class Google_Search_results:
             #  """
 
             sql_string = """
-                            select sd.sec_domain_id , sd.sec_domain
+                            select sd.sec_domain_id , sd.sec_domain_root
                             from secondary_domains sd
-                            where sd.sec_domain = 'www.fubo.tv'
+                            WHERE ml_sec_domain_classification is null           
+                            and google_search_results is null
+                            --and online_status is not null and sd.online_status !='Online' 
+                            --and sd.online_status !='Online-Bulk-check'
+                            and sd.added > '2025-07-18'
+                            limit 3000
                          """
             list_all_domains = []
             try:
