@@ -151,6 +151,7 @@ class For_no_redirect_domains :
                             where ml_sec_domain_classification is null
                             and sd.online_status ='Online'
                             and sd.redirect_domain = False
+                            and sd.sec_domain_piracy_class_v2_id is null
                              """
 
             list_all_domains = []

@@ -14,8 +14,6 @@ from dotenv import load_dotenv
 from typing import Any, Literal
 from settings import openia_apikey
 
-
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -23,22 +21,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 load_dotenv()
 logger.info('Loading script')
 OPENAI_APIKEY = openia_apikey
 
-
-#DB_CONNECTION = {
-#'host':'[supply.cmyrnxn5vuvh.us-east-1.rds.amazonaws.com](http://supply.cmyrnxn5vuvh.us-east-1.rds.amazonaws.com/)',
-#'database': 'supply',
-#'password': 'pk3h5m.yvw7nqw8.BPF',
-#'user': 'supply_scraping',
-#'port': '5432'
-#}
+# DB_CONNECTION = {
+# 'host':'[supply.cmyrnxn5vuvh.us-east-1.rds.amazonaws.com](http://supply.cmyrnxn5vuvh.us-east-1.rds.amazonaws.com/)',
+# 'database': 'supply',
+# 'password': 'pk3h5m.yvw7nqw8.BPF',
+# 'user': 'supply_scraping',
+# 'port': '5432'
+# }
 
 # Configuration constants
-MAX_HTML_CHARS = 80000   # ~5k tokens approx
+MAX_HTML_CHARS = 80000  # ~5k tokens approx
 MAX_CONCURRENT_REQUESTS = 5  # Semaphore limit for API calls
 DB_POOL_MIN_CONN = 1
 DB_POOL_MAX_CONN = 10
@@ -48,6 +44,7 @@ REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "none")
 DOMAIN_PROCESS_LIMIT = int(os.getenv("DOMAIN_PROCESS_LIMIT", "1000"))
 
 SECONDARY_DOMAIN_TABLE = os.getenv("SECONDARY_DOMAIN_TABLE", "secondary_domains")
+SECONDARY_DOMAIN_HTML_TABLE = os.getenv("SECONDARY_DOMAIN_HTML_TABLE", "secondary_domains_html")
 DOMAIN_ID_COLUMN = os.getenv("DOMAIN_ID_COLUMN", "sec_domain_id")
 MEDIA_TYPE_COLUMN = os.getenv("MEDIA_TYPE_COLUMN", "sec_domain_media_type_id")
 ENFORCEMENT_LABEL_COLUMN = os.getenv("ENFORCEMENT_LABEL_COLUMN", "sec_domain_piracy_class_v2_id")
@@ -62,7 +59,6 @@ SSL_SCORE_MODE = os.getenv("SSL_SCORE_MODE", "trust")
 
 # Database connection pool (initialized lazily)
 db_pool: pool.ThreadedConnectionPool | None = None
-
 
 
 class EnforcementResponse(BaseModel):
@@ -687,6 +683,7 @@ MEDIA_TYPE_ID_TO_NAME: dict[int, str] = {
     17: "invalid",
 }
 
+
 def init_db_pool():
     """Initialize the database connection pool."""
     global db_pool
@@ -727,7 +724,7 @@ def release_db_connection(conn):
         db_pool.putconn(conn)
 
 
-def get_all_domain_attributes_domains() -> list[int]:
+def get_all_domain_secondary_domains() -> list[int]:
     """
     Get all domain_id from domain_attributes table.
     Returns list of domain IDs to process.
@@ -735,112 +732,84 @@ def get_all_domain_attributes_domains() -> list[int]:
     conn = None
     cursor = None
     domain_ids = []
-    
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         table = safe_identifier(SECONDARY_DOMAIN_TABLE)
         domain_id_col = safe_identifier(DOMAIN_ID_COLUMN)
         media_type_col = safe_identifier(MEDIA_TYPE_COLUMN)
         enforcement_col = safe_identifier(ENFORCEMENT_LABEL_COLUMN)
-        
-        
-        
+
         sql_string = f"""
-            SELECT da.{domain_id_col}
-            FROM {table} da
-            WHERE da.{media_type_col} IS NOT NULL
-              AND da.{enforcement_col} IS NULL
-              AND EXISTS (
-                SELECT 1
-                FROM ad_events ae
-                JOIN dom_content dc
-                  ON dc.ad_event_id = ae.ad_event_id
-                WHERE ae.domain_id = da.{domain_id_col}
-                  AND dc.dom_content IS NOT NULL
-                  AND dc.dom_content_label IN ('home_mhtml', 'last_mhtml')
-                  AND ae.is_popup is false
-              )
-            ORDER BY da.{domain_id_col} DESC
-            LIMIT {DOMAIN_PROCESS_LIMIT}
+            SELECT sd.sec_domain_id 
+            FROM secondary_domains sd
+            where sd.sec_domain_media_type_id  IS NOT null
+            and sd.sec_domain_piracy_class_v2_id is null
+            and sd.online_status = 'Online'
         """
-        
+
         cursor.execute(sql_string)
         results = cursor.fetchall()
-        
+
         if results:
             domain_ids = [row[0] for row in results]
             logger.info(f"Found {len(domain_ids)} domains to process")
         else:
             logger.info("No domains found to process")
-            
+
     except Exception as e:
         logger.error(f"Error getting discovery domains: {e}")
     finally:
         if cursor:
             cursor.close()
         release_db_connection(conn)
-    
+
     return domain_ids
 
 
-def get_html_signals(domain_id: int) -> tuple[str | None, bool, bool]:
+def get_html_signals(sec_domain_id: int) -> tuple[str | None, bool, bool]:
     conn = None
     cursor = None
     html_content: str | None = None
     privacy_policy_detected = False
     terms_of_use_detected = False
- 
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
- 
-        sql_string = """
-            WITH last_event AS (
-                SELECT ae.ad_event_id
-                FROM ad_events ae
-                WHERE ae.domain_id = %s
-                  AND EXISTS (
-                    SELECT 1
-                    FROM dom_content dc
-                    WHERE dc.ad_event_id = ae.ad_event_id
-                      AND dc.dom_content IS NOT NULL
-                      AND dc.dom_content_label IN ('home_mhtml', 'last_mhtml')
-                  )
-                ORDER BY ae.event_date DESC, ae.ad_event_id DESC
-                LIMIT 1
-            )
-            SELECT dc.dom_content, dc.privacy_policy, dc.terms_of_use
-            FROM dom_content dc
-            JOIN last_event le ON le.ad_event_id = dc.ad_event_id
-            WHERE dc.dom_content IS NOT NULL
-              AND dc.dom_content_label IN ('home_mhtml', 'last_mhtml')
-            ORDER BY (dc.dom_content_label IN ('last_mhtml')) DESC, dc.dom_content_id DESC
+
+        table = safe_identifier(SECONDARY_DOMAIN_HTML_TABLE)
+        sql_string = f"""
+            SELECT html_content, privacy_policy, terms_of_use
+            FROM {table}
+            WHERE sec_domain_id = %s
+            ORDER BY sec_domain_html_id DESC
             LIMIT 1
         """
- 
-        cursor.execute(sql_string, (domain_id,))
+
+        cursor.execute(sql_string, (sec_domain_id,))
         result = cursor.fetchone()
- 
+
         if result:
             html_content = result[0]
             privacy_policy_detected = bool(result[1]) if result[1] is not None else False
             terms_of_use_detected = bool(result[2]) if result[2] is not None else False
- 
+
     except Exception as e:
-        logger.error(f"Error getting HTML signals for domain_id {domain_id}: {e}")
+        logger.error(f"Error getting HTML signals for disc_domain_id {sec_domain_id}: {e}")
     finally:
         if cursor:
             cursor.close()
         release_db_connection(conn)
- 
+
     return (html_content, privacy_policy_detected, terms_of_use_detected)
 
 
 def get_domain_metadata(
-    domain_id: int,
-    brand_keywords: list[str]
+        domain_id: int,
+        brand_keywords: list[str]
 ) -> tuple[int | None, str, bool, float]:
     conn = None
     cursor = None
@@ -858,7 +827,7 @@ def get_domain_metadata(
         domain_id_col = safe_identifier(DOMAIN_ID_COLUMN)
         media_type_col = safe_identifier(MEDIA_TYPE_COLUMN)
         sql_string = f"""
-            SELECT domain, {media_type_col}
+            SELECT sec_domain, {media_type_col}
             FROM {table}
             WHERE {domain_id_col} = %s
         """
@@ -947,11 +916,11 @@ def update_enforcement_label(domain_id: int, label_id: int) -> bool:
     conn = None
     cursor = None
     success = False
-    
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         table = safe_identifier(SECONDARY_DOMAIN_TABLE)
         domain_id_col = safe_identifier(DOMAIN_ID_COLUMN)
         enforcement_col = safe_identifier(ENFORCEMENT_LABEL_COLUMN)
@@ -960,11 +929,11 @@ def update_enforcement_label(domain_id: int, label_id: int) -> bool:
             SET {enforcement_col} = %s
             WHERE {domain_id_col} = %s
         """
-        
+
         cursor.execute(sql_string, (label_id, domain_id))
         conn.commit()
         success = True
-        
+
     except Exception as e:
         logger.error(f"Error updating enforcement label for domain_id {domain_id}: {e}")
         if conn:
@@ -973,7 +942,7 @@ def update_enforcement_label(domain_id: int, label_id: int) -> bool:
         if cursor:
             cursor.close()
         release_db_connection(conn)
-    
+
     return success
 
 
@@ -986,15 +955,15 @@ def update_enforcement_label(domain_id: int, label_id: int) -> bool:
     )
 )
 async def classify_enforcement(
-    client: AsyncOpenAI,
-    media_type_name: str,
-    raw_html: str,
-    prepared_text: str | None,
-    piracy_brand_known: bool,
-    ssl_score: float,
-    privacy_policy_detected: bool,
-    terms_of_use_detected: bool,
-    domain_id: int
+        client: AsyncOpenAI,
+        media_type_name: str,
+        raw_html: str,
+        prepared_text: str | None,
+        piracy_brand_known: bool,
+        ssl_score: float,
+        privacy_policy_detected: bool,
+        terms_of_use_detected: bool,
+        domain_id: int
 ) -> int:
     """
     Classify domain into an enforcement label using OpenAI.
@@ -1111,11 +1080,12 @@ async def classify_enforcement(
         )
         return 0
 
+
 async def process_domain(
-    client: AsyncOpenAI,
-    domain_id: int,
-    semaphore: asyncio.Semaphore,
-    brand_keywords: list[str]
+        client: AsyncOpenAI,
+        domain_id: int,
+        semaphore: asyncio.Semaphore,
+        brand_keywords: list[str]
 ) -> tuple[int, str]:
     """
     Process a single domain: get inputs, classify enforcement, and update DB.
@@ -1138,7 +1108,7 @@ async def process_domain(
 
             # Step 1: Get HTML content + crawler signals
             html_content, privacy_policy_detected, terms_of_use_detected = get_html_signals(domain_id)
-            
+
             if not html_content:
                 logger.warning(f"No HTML found for domain_id {domain_id}, skipping")
                 return (domain_id, 'skipped')
@@ -1171,10 +1141,10 @@ async def process_domain(
                 terms_of_use_detected=terms_of_use_detected,
                 domain_id=domain_id,
             )
-            
+
             # Step 3: Update database
             success = update_enforcement_label(domain_id, label_id)
-            
+
             if success:
                 logger.info(
                     f"Successfully updated domain_id {domain_id} with enforcement label {label_id}"
@@ -1182,7 +1152,7 @@ async def process_domain(
                 return (domain_id, 'processed')
             else:
                 return (domain_id, 'error')
-                
+
         except Exception as e:
             logger.error(f"Error processing domain_id {domain_id}: {e}")
             return (domain_id, 'error')
@@ -1191,47 +1161,47 @@ async def process_domain(
 async def main():
     """Main async entry point with concurrent processing."""
     logger.info("Starting enforcement classification process")
-    
+
     # Initialize OpenAI client
     api_key = OPENAI_APIKEY or os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         raise ValueError("Missing OpenAI API key. Set OPENAI_API_KEY env var or fill OPENAI_APIKEY.")
     client = AsyncOpenAI(api_key=api_key)
-    
+
     # Initialize DB pool
     init_db_pool()
 
     brand_keywords = load_piracy_brand_keywords()
-    
+
     try:
         # Get all domain IDs to process
-        domain_ids = get_all_domain_attributes_domains()
-        
+        domain_ids = get_all_domain_secondary_domains()
+
         if not domain_ids:
             logger.info("No domains to process. Exiting.")
             return
-        
+
         logger.info(
             f"Processing {len(domain_ids)} domains with {MAX_CONCURRENT_REQUESTS} concurrent requests"
         )
-        
+
         # Create semaphore for rate limiting
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-        
+
         # Create tasks for all domains
         tasks = [
             process_domain(client, domain_id, semaphore, brand_keywords)
             for domain_id in domain_ids
         ]
-        
+
         # Execute all tasks concurrently
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Count results
         processed_count = 0
         skipped_count = 0
         error_count = 0
-        
+
         for result in results:
             if isinstance(result, Exception):
                 error_count += 1
@@ -1243,7 +1213,7 @@ async def main():
                     skipped_count += 1
                 else:
                     error_count += 1
-        
+
         # Summary
         logger.info("=" * 60)
         logger.info("EXECUTION SUMMARY")
@@ -1253,7 +1223,7 @@ async def main():
         logger.info(f"Errors: {error_count}")
         logger.info("=" * 60)
         logger.info("Ending execution")
-        
+
     finally:
         # Always close the DB pool
         close_db_pool()
