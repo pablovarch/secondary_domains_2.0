@@ -25,14 +25,6 @@ load_dotenv()
 logger.info('Loading script')
 OPENAI_APIKEY = openia_apikey
 
-# DB_CONNECTION = {
-# 'host':'[supply.cmyrnxn5vuvh.us-east-1.rds.amazonaws.com](http://supply.cmyrnxn5vuvh.us-east-1.rds.amazonaws.com/)',
-# 'database': 'supply',
-# 'password': 'pk3h5m.yvw7nqw8.BPF',
-# 'user': 'supply_scraping',
-# 'port': '5432'
-# }
-
 # Configuration constants
 MAX_HTML_CHARS = 80000  # ~5k tokens approx
 MAX_CONCURRENT_REQUESTS = 5  # Semaphore limit for API calls
