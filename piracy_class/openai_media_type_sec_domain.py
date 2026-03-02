@@ -410,7 +410,8 @@ def get_all_discovery_domains() -> list[int]:
             FROM secondary_domains
             WHERE sec_domain_media_type_id IS NULL
               AND online_status = 'Online'
-            LIMIT 1000
+              and added > '2025-01-01'
+            -- LIMIT 1000
         """
         
         cursor.execute(sql_string)

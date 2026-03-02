@@ -107,7 +107,7 @@ class Betting_piracy:
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
-                SET ml_sec_domain_classification = u.ml_sec_domain_classification
+                SET ml_sec_domain_classification = u.ml_sec_domain_classification,
                 decision_source = u.decision_source
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;

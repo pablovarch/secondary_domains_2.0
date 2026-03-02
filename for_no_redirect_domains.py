@@ -1,4 +1,4 @@
-from dependencies import  log
+from dependencies import log
 import requests
 import re
 import constants, settings
@@ -6,7 +6,7 @@ from settings import db_connect
 import psycopg2
 
 
-class For_no_redirect_domains :
+class For_no_redirect_domains:
     def __init__(self):
         self.__logger = log.Log().get_logger(name='no_redirect_domains.log')
 
@@ -15,10 +15,10 @@ class For_no_redirect_domains :
         self.__logger.info('getting all Online domains on secondary_domains')
         list_to_scan = self.get_all_online_secondary_domains()
         dict_graymarket = {
-            'Adult Content':5,
-            'Gambling & Betting':6,
-            'Cryptocurrency Speculation':7,
-            'Supplement / Nutra':8,
+            'Adult Content': 5,
+            'Gambling & Betting': 6,
+            'Cryptocurrency Speculation': 7,
+            'Supplement / Nutra': 8,
             'undeterminated': 9
         }
         for dom in list_to_scan:
@@ -35,8 +35,9 @@ class For_no_redirect_domains :
             ad_density = dom['ad_density']
             tld_poor = dom['tld_poor']
             is_high_risk_geo = dom['is_high_risk_geo']
+            html_length = dom['html_length']
             # check poor ssl
-            if ssl_poor and not high_traffic and graymarket_label == 'undeterminated':
+            if ssl_poor and not high_traffic and graymarket_label == 'undeterminated' and html_length < 1000:
                 # self.__logger.info('domain is a referal_cloaking')
                 ml_sec_domain_classification = 2
             else:
@@ -54,7 +55,7 @@ class For_no_redirect_domains :
                                 ml_sec_domain_classification = 3
                             else:
                                 if graymarket_label:
-                                    #self.__logger.info('domain is a comercial target')
+                                    # self.__logger.info('domain is a comercial target')
                                     ml_sec_domain_classification = dict_graymarket[graymarket_label]
                                 else:
                                     ml_sec_domain_classification = 9
@@ -80,7 +81,6 @@ class For_no_redirect_domains :
                 f'update domain - {sec_domain} - ml_sec_domain_classification: {ml_sec_domain_classification}')
             decision_source = 'Decision Tree'
             self.update_secondary_domain(sec_domain_id, ml_sec_domain_classification, decision_source)
-
 
     def is_in_exclude_domains(self, sec_domain):
 
@@ -119,7 +119,6 @@ class For_no_redirect_domains :
                 conn.close()
                 return is_in_exclude
 
-
     def get_all_online_secondary_domains(self):
         # Try to connect to the DB
         try:
@@ -146,7 +145,8 @@ class For_no_redirect_domains :
                             sd.graymarket_label,
                             sd.ad_density,
                             sd.tld_poor,
-                            sd.is_high_risk_geo
+                            sd.is_high_risk_geo,
+                            sd.html_length
                             from secondary_domains sd
                             where ml_sec_domain_classification is null
                             and sd.online_status ='Online'
@@ -164,7 +164,7 @@ class For_no_redirect_domains :
                     for elem in respuesta:
                         domain_data = {
                             'sec_domain_id': elem[0],
-                            'sec_domain' : elem[1],
+                            'sec_domain': elem[1],
                             'ssl_poor': elem[2],
                             'high_traffic': elem[3],
                             'is_ecommerce': elem[4],
@@ -173,7 +173,8 @@ class For_no_redirect_domains :
                             'graymarket_label': elem[7],
                             'ad_density': elem[8],
                             'tld_poor': elem[9],
-                            'is_high_risk_geo': elem[10]
+                            'is_high_risk_geo': elem[10],
+                            'html_length': elem[11]
 
                         }
                         list_all_domains.append(domain_data)
@@ -188,7 +189,7 @@ class For_no_redirect_domains :
                 conn.close()
                 return list_all_domains
 
-    def update_secondary_domain(self, sec_domain_id,ml_sec_domain_classification, decision_source ):
+    def update_secondary_domain(self, sec_domain_id, ml_sec_domain_classification, decision_source):
         try:
             conn = psycopg2.connect(host=db_connect['host'],
                                     database=db_connect['database'],
@@ -206,8 +207,9 @@ class For_no_redirect_domains :
                        SET ml_sec_domain_classification = %s,
                        decision_source = %s
                        WHERE sec_domain_id = %s
+
                    """
-            data = (ml_sec_domain_classification,decision_source, sec_domain_id)
+            data = (ml_sec_domain_classification, decision_source, sec_domain_id)
             try:
                 cursor.execute(sql_string, data)
                 conn.commit()
