@@ -410,7 +410,7 @@ def get_all_discovery_domains() -> list[int]:
             FROM secondary_domains
             WHERE sec_domain_media_type_id IS NULL
               AND online_status = 'Online'
-              and added > '2025-01-01'
+              AND ml_sec_domain_classification is null
             -- LIMIT 1000
         """
         

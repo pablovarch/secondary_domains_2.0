@@ -40,15 +40,17 @@ class html_fields:
         r'sticky-ad', r'interstitial', r'pub', r'anuncio', r'publicidad',
         r'annonce', r'werbung',
     ]
-    _AD_KEYWORDS_EXCLUDE = re.compile(r'\b(address|adapter|addthis|additional|pub(?:lish|lic|lication))\b', re.I)
+    _AD_KEYWORDS_EXCLUDE = re.compile(
+        r'\b(address|adapter|addthis|additional|pub(?:lish|lic|lication))\b', re.I
+    )
 
     _AD_SRC_PATTERNS = [
         'doubleclick', 'googlesyndication', 'adnxs', 'adservice',
         'adsystem', 'criteo', 'taboola', 'outbrain',
     ]
 
-    _VENDOR_GPT    = re.compile(r'googletag|gpt\.js|doubleclick|securepubads', re.I)
-    _VENDOR_HB     = re.compile(
+    _VENDOR_GPT      = re.compile(r'googletag|gpt\.js|doubleclick|securepubads', re.I)
+    _VENDOR_HB       = re.compile(
         r'prebid|amazon-adsystem|criteo|rubicon|openx|indexexchange|pubmatic|sovrn|adnxs', re.I
     )
     _VENDOR_ARBITRAGE = re.compile(r'taboola|outbrain|revcontent|mgid|zergnet', re.I)
@@ -63,9 +65,9 @@ class html_fields:
     _PAGINATION_URL = re.compile(r'/page/\d+|[?&]page=|/amp/', re.I)
 
     _CLICKBAIT = re.compile(
-        r"(you won.t believe|shocking|no vas a creer|te sorprender|lo que pasó"
+        r"(you won.t believe|shocking|no vas a creer|te sorprender|lo que pas\u00f3"
         r"|\d+\s+(things|cosas|razones)|top\s+\d+|number\s+\d+|before.*after"
-        r"|antes.*después|mira esto)",
+        r"|antes.*despu\u00e9s|mira esto)",
         re.I,
     )
 
@@ -78,13 +80,17 @@ class html_fields:
     }
     _ALLOWED_MFA_LABELS = {'mfa', 'unknow'}
 
-    _LLM_MODEL   = 'gpt-5.1-2025-11-13'
-    _LLM_TEMP    = 0
+    _LLM_MODEL     = 'gpt-5.1-2025-11-13'
+    _LLM_TEMP      = 0
     _MFA_THRESHOLD = 65
 
     def __init__(self):
         self.__logger = log.Log().get_logger(name='ad_count.log')
         self.__openai_client = OpenAI(api_key=openia_apikey)
+
+    # ------------------------------------------------------------------ #
+    #  PIPELINE PRINCIPAL                                                #
+    # ------------------------------------------------------------------ #
 
     def main(self):
         self.__logger.info('Starting html fields script')
@@ -93,12 +99,11 @@ class html_fields:
         list_to_scan = self.get_all_secondary_domains()
         for dom in list_to_scan:
             sec_domain_id = dom['sec_domain_id']
-            sec_domain = dom['sec_domain']
             try:
                 self.__logger.info(f'------get html from site {dom}')
                 html = self.get_html(sec_domain_id)
                 if html:
-                    result_detect_ecommerce_signals = self.detect_ecommerce_signals(html)
+                    result_detect_ecommerce_signals  = self.detect_ecommerce_signals(html)
                     result_detect_affiliate_handoffs = self.detect_affiliate_handoffs(html)
                     ad_count = self.count_ad_slots_from_html(html)
 
@@ -125,6 +130,10 @@ class html_fields:
             except Exception as e:
                 self.__logger.error(f'Error getting htmls fields - {dom} - error {e}')
 
+    # ------------------------------------------------------------------ #
+    #  BASE DE DATOS                                                     #
+    # ------------------------------------------------------------------ #
+
     def _db_connect(self):
         """Retorna una conexión psycopg2 activa."""
         try:
@@ -142,13 +151,17 @@ class html_fields:
             WHERE
                 sd.graymarket_label IS NULL
                 AND sd.online_status = 'Online'
-                AND sd.redirect_domain = False
-                AND sd.ml_media_type_id != 17;
+                AND sd.redirect_domain = false
+                AND sd.exc_domain_id IS NULL
+                AND sd.added > '2025-01-01'
+                AND sd.ml_sec_domain_classification IS NULL;
         """
         list_all_domains = []
-        conn = self._db_connect()
-        cursor = conn.cursor()
+        conn = None
+        cursor = None
         try:
+            conn = self._db_connect()
+            cursor = conn.cursor()
             cursor.execute(sql_string)
             respuesta = cursor.fetchall()
             conn.commit()
@@ -156,21 +169,23 @@ class html_fields:
                 for elem in respuesta:
                     list_all_domains.append({
                         'sec_domain_id': elem[0],
-                        'sec_domain': elem[1],
+                        'sec_domain':    elem[1],
                     })
         except Exception as e:
             self.__logger.error(f':::: Error found trying to get_all_secondary_domains: {e}')
         finally:
-            cursor.close()
-            conn.close()
+            if cursor: cursor.close()
+            if conn:   conn.close()
         return list_all_domains
 
     def get_html(self, sec_domain_id):
         sql_string = """SELECT sdh.html_content FROM secondary_domains_html sdh WHERE sdh.sec_domain_id = %s"""
-        html = None
-        conn = self._db_connect()
-        cursor = conn.cursor()
+        html   = None
+        conn   = None
+        cursor = None
         try:
+            conn = self._db_connect()
+            cursor = conn.cursor()
             cursor.execute(sql_string, (sec_domain_id,))
             respuesta = cursor.fetchone()
             conn.commit()
@@ -179,9 +194,58 @@ class html_fields:
         except Exception as e:
             self.__logger.error(f':::: Error found trying to get_html: {e}')
         finally:
-            cursor.close()
-            conn.close()
+            if cursor: cursor.close()
+            if conn:   conn.close()
         return html
+
+    def update_secondary_domain(self, sec_domain_id, ad_count, has_affiliate_handoff, is_ecommerce, graymarket_label):
+        sql_string = """
+            UPDATE public.secondary_domains
+            SET ad_count = %s,
+                has_affiliate_handoff = %s,
+                is_ecommerce = %s,
+                graymarket_label = %s
+            WHERE sec_domain_id = %s
+        """
+        data   = (ad_count, has_affiliate_handoff, is_ecommerce, graymarket_label, sec_domain_id)
+        conn   = None
+        cursor = None
+        try:
+            conn = self._db_connect()
+            cursor = conn.cursor()
+            cursor.execute(sql_string, data)
+            conn.commit()
+        except Exception as e:
+            self.__logger.error(
+                f'::Saver:: Error updating status on secondary domains with id {sec_domain_id} - {e}')
+        finally:
+            if cursor: cursor.close()
+            if conn:   conn.close()
+
+    def update_secondary_domain_graymarket_label(self, sec_domain_id, graymarket_label):
+        sql_string = """
+            UPDATE public.secondary_domains
+            SET graymarket_label = %s
+            WHERE sec_domain_id = %s
+        """
+        data   = (graymarket_label, sec_domain_id)
+        conn   = None
+        cursor = None
+        try:
+            conn = self._db_connect()
+            cursor = conn.cursor()
+            cursor.execute(sql_string, data)
+            conn.commit()
+        except Exception as e:
+            self.__logger.error(
+                f'::Saver:: Error updating status on secondary domains with id {sec_domain_id} - {e}')
+        finally:
+            if cursor: cursor.close()
+            if conn:   conn.close()
+
+    # ------------------------------------------------------------------ #
+    #  DETECCIONES EXISTENTES                                            #
+    # ------------------------------------------------------------------ #
 
     def _is_affiliate_link(self, url: str) -> bool:
         """True si URL coincide con patrón afiliado."""
@@ -200,12 +264,10 @@ class html_fields:
         min_links: int = 1
         soup = BeautifulSoup(html, "html.parser")
         affiliate_links = []
-
         for a in soup.find_all("a", href=True):
             href = a["href"]
             if self._is_affiliate_link(href):
                 affiliate_links.append(href)
-
         return {
             "links": affiliate_links,
             "has_affiliate_handoff": len(affiliate_links) >= min_links,
@@ -280,6 +342,24 @@ class html_fields:
 
         return False
 
+    # ------------------------------------------------------------------ #
+    #  EXTRACCIÓN DE TEXTO                                               #
+    # ------------------------------------------------------------------ #
+
+    def extract_main_text(self, html: str) -> str:
+        """
+        Retorna solo el texto principal usando trafilatura.
+        Usado internamente para cálculos de word_count y repetition_score.
+        """
+        main_text = trafilatura.extract(html, include_comments=False, include_tables=False) or ""
+        if not main_text:
+            soup = BeautifulSoup(html, "html.parser")
+            for tag in soup(["script", "style", "noscript", "iframe", "svg"]):
+                tag.decompose()
+            raw = soup.get_text(separator=" ")
+            main_text = unescape(re.sub(r"\s+", " ", raw)).strip()
+        return main_text
+
     def extract_relevant_text(self, html: str) -> str:
         """
         Extrae texto principal usando trafilatura (main content extraction).
@@ -304,20 +384,225 @@ class html_fields:
         parts = [p for p in (title, description, main_text) if p]
         return "\n\n".join(parts)
 
-    def extract_main_text(self, html: str) -> str:
-        """
-        Retorna solo el texto principal (sin título/meta) usando trafilatura.
-        Usado internamente para cálculos de word_count y repetition_score.
-        """
-        main_text = trafilatura.extract(html, include_comments=False, include_tables=False) or ""
-        if not main_text:
-            soup = BeautifulSoup(html, "html.parser")
-            for tag in soup(["script", "style", "noscript", "iframe", "svg"]):
-                tag.decompose()
-            raw = soup.get_text(separator=" ")
-            main_text = unescape(re.sub(r"\s+", " ", raw)).strip()
-        return main_text
+    # ------------------------------------------------------------------ #
+    #  EXTRACCIÓN DE FEATURES MFA                                        #
+    # ------------------------------------------------------------------ #
 
+    def extract_mfa_features(self, html: str) -> dict:
+        """
+        Calcula todas las señales estructurales y de contenido para MFA.
+        Retorna un dict con los features normalizados listos para scoring.
+        """
+        soup       = BeautifulSoup(html, "html.parser")
+        full_text  = self.extract_main_text(html)
+        word_count = len(full_text.split())
+
+        # ---- A) Conteos estructurales de ads -------------------------
+        iframe_count = len(soup.find_all("iframe"))
+        ins_count    = len(soup.find_all("ins"))
+        amp_ad_count = len(soup.find_all("amp-ad"))
+
+        ad_like_nodes     = 0
+        ad_class_snippets = []
+        for tag in soup.find_all(["iframe", "div", "section", "ins", "script"]):
+            if self.looks_like_ad(tag):
+                ad_like_nodes += 1
+                cls_id = f"{tag.get('id', '')} {' '.join(tag.get('class', []))}".strip()
+                if cls_id and len(ad_class_snippets) < 20:
+                    ad_class_snippets.append(cls_id[:80])
+
+        # ---- B) Vendors de monetización (scripts inline + src) -------
+        inline_scripts = " ".join(
+            s.string or "" for s in soup.find_all("script") if s.string
+        )
+        src_attrs  = " ".join(tag.get("src", "") for tag in soup.find_all(src=True))
+        combined_js = inline_scripts + " " + src_attrs
+
+        vendor_gpt       = bool(self._VENDOR_GPT.search(combined_js))
+        vendor_hb        = bool(self._VENDOR_HB.search(combined_js))
+        vendor_arbitrage = bool(self._VENDOR_ARBITRAGE.search(combined_js))
+
+        vendors_detected = []
+        for name, pattern in [
+            ('googletag/DFP',     self._VENDOR_GPT),
+            ('header-bidding',    self._VENDOR_HB),
+            ('arbitrage-widgets', self._VENDOR_ARBITRAGE),
+        ]:
+            if pattern.search(combined_js):
+                vendors_detected.append(name)
+
+        # ---- C) Formatos agresivos -----------------------------------
+        autoplay_video_ads = False
+        for video in soup.find_all("video"):
+            if video.has_attr("autoplay") and video.has_attr("muted"):
+                autoplay_video_ads = True
+                break
+
+        sticky_or_anchor_ads = False
+        for tag in soup.find_all(True, style=True):
+            style_val    = tag.get("style", "").lower()
+            cls_val      = " ".join(tag.get("class", [])).lower()
+            combined_val = style_val + " " + cls_val
+            if re.search(r'position\s*:\s*(fixed|sticky)', combined_val) or \
+               re.search(r'\b(sticky|anchor|bottom)[\s-]?(ad|banner|bar)\b', combined_val):
+                sticky_or_anchor_ads = True
+                break
+
+        overlay_interstitial = False
+        for tag in soup.find_all(True, {"class": True}):
+            cls_val = " ".join(tag.get("class", [])).lower()
+            if re.search(r'\b(modal|overlay|interstitial|lightbox|popup)\b', cls_val):
+                overlay_interstitial = True
+                break
+
+        # ---- D) Recommendation widgets (arbitraje) ------------------
+        rec_widget_count = 0
+        for tag in soup.find_all(True, {"class": True}):
+            cls_val = " ".join(tag.get("class", [])).lower()
+            if self._VENDOR_ARBITRAGE.search(cls_val):
+                rec_widget_count += 1
+        for tag in soup.find_all(["div", "section", "aside", "p"]):
+            direct_text = " ".join(tag.find_all(string=True, recursive=False)).strip()
+            if direct_text and self._REC_WIDGET_TEXT.search(direct_text):
+                rec_widget_count += 1
+        rec_widget_present = rec_widget_count > 0
+
+        # ---- E) Journey manipulation / paginación -------------------
+        pagination_hits = 0
+        for a in soup.find_all("a", href=True):
+            href   = a.get("href", "")
+            anchor = a.get_text(" ", strip=True)
+            if self._PAGINATION_ANCHORS.search(anchor) or self._PAGINATION_URL.search(href):
+                pagination_hits += 1
+        rel_next = len(soup.find_all("link", rel=lambda r: isinstance(r, list) and 'next' in r))
+        pagination_score = min(1.0, (pagination_hits + rel_next * 2) / 10.0)
+
+        # ---- F) Thin content / text quality -------------------------
+        text_to_html_ratio = len(full_text) / max(len(html), 1)
+        paragraphs         = [p.strip() for p in full_text.split("\n") if len(p.split()) >= 10]
+        repetition_score   = self._compute_repetition_score(paragraphs)
+
+        # ---- G) Clickbait en título / H1 ----------------------------
+        title_h1 = ""
+        if soup.title:
+            title_h1 += soup.title.get_text(" ", strip=True) + " "
+        h1 = soup.find("h1")
+        if h1:
+            title_h1 += h1.get_text(" ", strip=True)
+        clickbait_title = bool(self._CLICKBAIT.search(title_h1))
+
+        # ---- H) Ratios normalizados ----------------------------------
+        ad_to_text_ratio    = ad_like_nodes / max(word_count, 1)
+        iframe_per_1k_words = iframe_count  / max(word_count / 1000, 0.1)
+
+        return {
+            'word_count':           word_count,
+            'iframe_count':         iframe_count,
+            'ins_count':            ins_count,
+            'amp_ad_count':         amp_ad_count,
+            'ad_like_nodes':        ad_like_nodes,
+            'ad_class_snippets':    ad_class_snippets,
+            'vendor_gpt':           vendor_gpt,
+            'vendor_hb':            vendor_hb,
+            'vendor_arbitrage':     vendor_arbitrage,
+            'vendors_detected':     vendors_detected,
+            'autoplay_video_ads':   autoplay_video_ads,
+            'sticky_or_anchor_ads': sticky_or_anchor_ads,
+            'overlay_interstitial': overlay_interstitial,
+            'rec_widget_present':   rec_widget_present,
+            'rec_widget_count':     rec_widget_count,
+            'pagination_score':     pagination_score,
+            'text_to_html_ratio':   text_to_html_ratio,
+            'repetition_score':     repetition_score,
+            'clickbait_title':      clickbait_title,
+            'ad_to_text_ratio':     ad_to_text_ratio,
+            'iframe_per_1k_words':  iframe_per_1k_words,
+        }
+
+    def _compute_repetition_score(self, paragraphs: list) -> float:
+        """
+        Estima la repetición de contenido entre párrafos usando shingling (5-grams).
+        Retorna el porcentaje de pares con similitud Jaccard > 0.85.
+        """
+        if len(paragraphs) < 2:
+            return 0.0
+
+        def shingle(text: str, n: int = 5) -> set:
+            tokens = re.sub(r"\s+", " ", text.lower()).split()
+            return {tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1)}
+
+        paragraphs    = paragraphs[:80]
+        shingles      = [shingle(p) for p in paragraphs]
+        similar_pairs = 0
+        total_pairs   = 0
+        for i in range(len(shingles)):
+            for j in range(i + 1, len(shingles)):
+                a, b = shingles[i], shingles[j]
+                if not a or not b:
+                    continue
+                jaccard = len(a & b) / len(a | b)
+                if jaccard > 0.85:
+                    similar_pairs += 1
+                total_pairs += 1
+
+        return similar_pairs / max(total_pairs, 1)
+
+    # ------------------------------------------------------------------ #
+    #  SCORING DETERMINÍSTICO MFA                                        #
+    # ------------------------------------------------------------------ #
+
+    def compute_mfa_score(self, features: dict) -> int:
+        """
+        Calcula un score MFA de 0 a 100 basado en señales ponderadas.
+        Umbral de clasificación: >= 65 → candidato mfa (confirmar con LLM).
+        """
+        score = 0
+
+        # ---- Señales de anuncios (hasta 45) -------------------------
+        if features['ad_like_nodes'] > 25:
+            score += 15
+        elif features['ad_like_nodes'] > 12:
+            score += 7
+
+        if features['iframe_count'] > 12:
+            score += 10
+        elif features['iframe_count'] > 6:
+            score += 5
+
+        if features['vendor_gpt'] or features['vendor_hb']:
+            score += 10
+
+        if features['sticky_or_anchor_ads'] or \
+           features['autoplay_video_ads']   or \
+           features['overlay_interstitial']:
+            score += 10
+
+        # ---- Arbitraje (hasta 25) -----------------------------------
+        if features['rec_widget_present']:
+            score += 20
+            if features['rec_widget_count'] > 3:
+                score += 5
+
+        # ---- Contenido / journey (hasta 30) ------------------------
+        thin_content = features['word_count'] < 400 and features['ad_like_nodes'] > 8
+        if thin_content:
+            score += 15
+        elif features['word_count'] < 250 and features['ad_like_nodes'] > 0:
+            score += 8
+
+        if features['pagination_score'] > 0.5:
+            score += 10
+        elif features['pagination_score'] > 0.2:
+            score += 4
+
+        if features['repetition_score'] > 0.3:
+            score += 5
+
+        return min(score, 100)
+
+    # ------------------------------------------------------------------ #
+    #  CLASIFICADORES LLM                                                #
+    # ------------------------------------------------------------------ #
 
     def llm_classify_graymarket(self, text: str) -> str:
         """
@@ -371,8 +656,7 @@ class html_fields:
             "  - Weight loss pills, fat burners, appetite suppressants, or detox/cleanse products.\n"
             "  - Muscle growth, bodybuilding supplements, protein powders, pre-workouts, or testosterone boosters.\n"
             "  - Anti-aging creams, nootropics, or cognitive enhancement pills.\n"
-            "  - Sexual health supplements (distinct from prescription drugs — e.g., 'natural' libido boosters, "
-            "herbal Viagra, male enhancement pills).\n"
+            "  - Sexual health supplements (e.g., 'natural' libido boosters, herbal Viagra, male enhancement pills).\n"
             "  - Keto, paleo, or other diet-branded supplement product lines.\n"
             "  SIGNALS: words like 'supplement', 'capsule', 'pill', 'formula', 'boost', 'burn fat', 'weight loss', "
             "'muscle', 'testosterone', 'collagen', 'probiotic', 'detox', 'cleanse', 'nootropic', 'keto', "
@@ -416,8 +700,8 @@ class html_fields:
         Solo se invoca cuando el scoring determinístico supera el umbral.
         Retorna 'mfa' o 'unknow'.
         """
-        vendors_str    = ", ".join(features.get('vendors_detected', [])) or "none"
-        evidence_str   = ", ".join(features.get('ad_class_snippets', [])[:10]) or "none"
+        vendors_str  = ", ".join(features.get('vendors_detected', [])) or "none"
+        evidence_str = ", ".join(features.get('ad_class_snippets', [])[:10]) or "none"
 
         prompt = (
             "You are a strict MFA (Made-for-Advertising / Made-for-Arbitrage) site detector.\n"
@@ -461,230 +745,8 @@ class html_fields:
             messages=messages,
         )
         raw   = response.choices[0].message.content.strip().lower()
-        label = raw.splitlines()[0]
-        label = re.sub(r"[^a-z]", "", label)
+        label = re.sub(r"[^a-z]", "", raw.splitlines()[0])
         return label if label in self._ALLOWED_MFA_LABELS else "unknow"
-
-
-
-    # ------------------------------------------------------------------ #
-    #  EXTRACCIÓN DE FEATURES MFA                                        #
-    # ------------------------------------------------------------------ #
-
-    def extract_mfa_features(self, html: str) -> dict:
-        """
-        Calcula todas las señales estructurales y de contenido para MFA.
-        Retorna un dict con los features normalizados listos para scoring.
-        """
-        soup      = BeautifulSoup(html, "html.parser")
-        full_text = self.extract_main_text(html)
-        word_count = len(full_text.split())
-
-        # ---- A) Conteos estructurales de ads -------------------------
-        iframe_count = len(soup.find_all("iframe"))
-        ins_count    = len(soup.find_all("ins"))
-        amp_ad_count = len(soup.find_all("amp-ad"))
-
-        ad_like_nodes = 0
-        ad_class_snippets = []
-        for tag in soup.find_all(["iframe", "div", "section", "ins", "script"]):
-            if self.looks_like_ad(tag):
-                ad_like_nodes += 1
-                cls_id = f"{tag.get('id', '')} {' '.join(tag.get('class', []))}".strip()
-                if cls_id and len(ad_class_snippets) < 20:
-                    ad_class_snippets.append(cls_id[:80])
-
-        # ---- B) Vendors de monetización (buscar en scripts inline) ---
-        inline_scripts = " ".join(
-            s.string or "" for s in soup.find_all("script") if s.string
-        )
-        src_attrs = " ".join(
-            tag.get("src", "") for tag in soup.find_all(src=True)
-        )
-        combined_js = inline_scripts + " " + src_attrs
-
-        vendor_gpt       = bool(self._VENDOR_GPT.search(combined_js))
-        vendor_hb        = bool(self._VENDOR_HB.search(combined_js))
-        vendor_arbitrage = bool(self._VENDOR_ARBITRAGE.search(combined_js))
-
-        vendors_detected = []
-        for name, pattern in [
-            ('googletag/DFP', self._VENDOR_GPT),
-            ('header-bidding', self._VENDOR_HB),
-            ('arbitrage-widgets', self._VENDOR_ARBITRAGE),
-        ]:
-            if pattern.search(combined_js):
-                vendors_detected.append(name)
-
-        # ---- C) Formatos agresivos -----------------------------------
-        autoplay_video_ads = False
-        for video in soup.find_all("video"):
-            if video.has_attr("autoplay") and video.has_attr("muted"):
-                autoplay_video_ads = True
-                break
-
-        sticky_or_anchor_ads = False
-        for tag in soup.find_all(True, style=True):
-            style_val = tag.get("style", "").lower()
-            cls_val   = " ".join(tag.get("class", [])).lower()
-            combined_val = style_val + " " + cls_val
-            if re.search(r'position\s*:\s*(fixed|sticky)', combined_val) or \
-               re.search(r'\b(sticky|anchor|bottom)[\s-]?(ad|banner|bar)\b', combined_val):
-                sticky_or_anchor_ads = True
-                break
-
-        overlay_interstitial = False
-        for tag in soup.find_all(True, {"class": True}):
-            cls_val = " ".join(tag.get("class", [])).lower()
-            if re.search(r'\b(modal|overlay|interstitial|lightbox|popup)\b', cls_val):
-                overlay_interstitial = True
-                break
-
-        # ---- D) Recommendation widgets (arbitraje) ------------------
-        rec_widget_count = 0
-        for tag in soup.find_all(True, {"class": True}):
-            cls_val = " ".join(tag.get("class", [])).lower()
-            if self._VENDOR_ARBITRAGE.search(cls_val):
-                rec_widget_count += 1
-                continue
-        for tag in soup.find_all(["div", "section", "aside", "p"]):
-            direct_text = " ".join(tag.find_all(string=True, recursive=False)).strip()
-            if direct_text and self._REC_WIDGET_TEXT.search(direct_text):
-                rec_widget_count += 1
-        rec_widget_present = rec_widget_count > 0
-
-        # ---- E) Journey manipulation / paginación -------------------
-        pagination_hits = 0
-        for a in soup.find_all("a", href=True):
-            href    = a.get("href", "")
-            anchor  = a.get_text(" ", strip=True)
-            if self._PAGINATION_ANCHORS.search(anchor) or self._PAGINATION_URL.search(href):
-                pagination_hits += 1
-        rel_next = len(soup.find_all("link", rel=lambda r: isinstance(r, list) and 'next' in r))
-        pagination_score = min(1.0, (pagination_hits + rel_next * 2) / 10.0)
-
-        # ---- F) Thin content / text quality -------------------------
-        text_to_html_ratio = len(full_text) / max(len(html), 1)
-
-        paragraphs = [p.strip() for p in full_text.split("\n") if len(p.split()) >= 10]
-        repetition_score = self._compute_repetition_score(paragraphs)
-
-        # ---- G) Clickbait en título / H1 ----------------------------
-        title_h1 = ""
-        if soup.title:
-            title_h1 += soup.title.get_text(" ", strip=True) + " "
-        h1 = soup.find("h1")
-        if h1:
-            title_h1 += h1.get_text(" ", strip=True)
-        clickbait_title = bool(self._CLICKBAIT.search(title_h1))
-
-        # ---- H) Ratios normalizados ----------------------------------
-        ad_to_text_ratio    = ad_like_nodes / max(word_count, 1)
-        iframe_per_1k_words = iframe_count  / max(word_count / 1000, 0.1)
-
-        return {
-            'word_count':          word_count,
-            'iframe_count':        iframe_count,
-            'ins_count':           ins_count,
-            'amp_ad_count':        amp_ad_count,
-            'ad_like_nodes':       ad_like_nodes,
-            'ad_class_snippets':   ad_class_snippets,
-            'vendor_gpt':          vendor_gpt,
-            'vendor_hb':           vendor_hb,
-            'vendor_arbitrage':    vendor_arbitrage,
-            'vendors_detected':    vendors_detected,
-            'autoplay_video_ads':  autoplay_video_ads,
-            'sticky_or_anchor_ads': sticky_or_anchor_ads,
-            'overlay_interstitial': overlay_interstitial,
-            'rec_widget_present':  rec_widget_present,
-            'rec_widget_count':    rec_widget_count,
-            'pagination_score':    pagination_score,
-            'text_to_html_ratio':  text_to_html_ratio,
-            'repetition_score':    repetition_score,
-            'clickbait_title':     clickbait_title,
-            'ad_to_text_ratio':    ad_to_text_ratio,
-            'iframe_per_1k_words': iframe_per_1k_words,
-        }
-
-    def _compute_repetition_score(self, paragraphs: list) -> float:
-        """
-        Estima la repetición de contenido entre párrafos usando shingling (5-grams).
-        Retorna el porcentaje de pares con similitud Jaccard > 0.85.
-        """
-        if len(paragraphs) < 2:
-            return 0.0
-
-        def shingle(text: str, n: int = 5) -> set:
-            tokens = re.sub(r"\s+", " ", text.lower()).split()
-            return {tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1)}
-
-        shingles = [shingle(p) for p in paragraphs]
-        similar_pairs = 0
-        total_pairs   = 0
-        for i in range(len(shingles)):
-            for j in range(i + 1, len(shingles)):
-                a, b = shingles[i], shingles[j]
-                if not a or not b:
-                    continue
-                jaccard = len(a & b) / len(a | b)
-                if jaccard > 0.85:
-                    similar_pairs += 1
-                total_pairs += 1
-
-        return similar_pairs / max(total_pairs, 1)
-
-    # ------------------------------------------------------------------ #
-    #  SCORING DETERMINÍSTICO MFA                                        #
-    # ------------------------------------------------------------------ #
-
-    def compute_mfa_score(self, features: dict) -> int:
-        """
-        Calcula un score MFA de 0 a 100 basado en señales ponderadas.
-        Umbral de clasificación: >= 65 → mfa candidato (confirmar con LLM).
-        """
-        score = 0
-
-        # ---- Señales de anuncios (hasta 45) -------------------------
-        if features['ad_like_nodes'] > 25:
-            score += 15
-        elif features['ad_like_nodes'] > 12:
-            score += 7
-
-        if features['iframe_count'] > 12:
-            score += 10
-        elif features['iframe_count'] > 6:
-            score += 5
-
-        if features['vendor_gpt'] or features['vendor_hb']:
-            score += 10
-
-        if features['sticky_or_anchor_ads'] or \
-           features['autoplay_video_ads']  or \
-           features['overlay_interstitial']:
-            score += 10
-
-        # ---- Arbitraje (hasta 25) -----------------------------------
-        if features['rec_widget_present']:
-            score += 20
-            if features['rec_widget_count'] > 3:
-                score += 5
-
-        # ---- Contenido / journey (hasta 30) ------------------------
-        thin_content = features['word_count'] < 400 and features['ad_like_nodes'] > 8
-        if thin_content:
-            score += 15
-        elif features['word_count'] < 250 and features['ad_like_nodes'] > 0:
-            score += 8
-
-        if features['pagination_score'] > 0.5:
-            score += 10
-        elif features['pagination_score'] > 0.2:
-            score += 4
-
-        if features['repetition_score'] > 0.3:
-            score += 5
-
-        return min(score, 100)
 
     # ------------------------------------------------------------------ #
     #  PIPELINE PRINCIPAL DE CLASIFICACIÓN                               #
@@ -695,9 +757,9 @@ class html_fields:
         Pipeline de clasificación con dos etapas:
 
         1. Si el scoring MFA supera el umbral, usa llm_confirm_mfa() para
-           confirmar → retorna 'mfa' o 'unknow'.
-        2. Si no hay señal MFA fuerte, usa llm_classify_graymarket() para
-           detectar las categorías gray-market existentes.
+           confirmar → retorna 'mfa' o cae al paso 2.
+        2. Usa llm_classify_graymarket() para detectar las categorías
+           gray-market existentes.
         """
         if mfa_features is None:
             mfa_features = self.extract_mfa_features(html)
@@ -712,45 +774,4 @@ class html_fields:
                 return 'mfa'
 
         return self.llm_classify_graymarket(relevant_text)
-
-    def update_secondary_domain(self, sec_domain_id, ad_count, has_affiliate_handoff, is_ecommerce, graymarket_label):
-        sql_string = """
-            UPDATE public.secondary_domains
-            SET ad_count = %s,
-                has_affiliate_handoff = %s,
-                is_ecommerce = %s,
-                graymarket_label = %s
-            WHERE sec_domain_id = %s
-        """
-        data = (ad_count, has_affiliate_handoff, is_ecommerce, graymarket_label, sec_domain_id)
-        conn = self._db_connect()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(sql_string, data)
-            conn.commit()
-        except Exception as e:
-            self.__logger.error(
-                f'::Saver:: Error updating status on secondary domains with id {sec_domain_id} - {e}')
-        finally:
-            cursor.close()
-            conn.close()
-
-    def update_secondary_domain_graymarket_label(self, sec_domain_id, graymarket_label):
-        sql_string = """
-            UPDATE public.secondary_domains
-            SET graymarket_label = %s
-            WHERE sec_domain_id = %s
-        """
-        data = (graymarket_label, sec_domain_id)
-        conn = self._db_connect()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(sql_string, data)
-            conn.commit()
-        except Exception as e:
-            self.__logger.error(
-                f'::Saver:: Error updating status on secondary domains with id {sec_domain_id} - {e}')
-        finally:
-            cursor.close()
-            conn.close()
 
