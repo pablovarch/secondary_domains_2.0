@@ -50,7 +50,7 @@ class For_no_redirect_domains:
                             # self.__logger.info('domain is a comercial target')
                             ml_sec_domain_classification = 4
                         else:
-                            if ad_density and tld_poor:
+                            if ad_density and tld_poor and html_length > 2000:
                                 # self.__logger.info('domain is a MFA')
                                 ml_sec_domain_classification = 3
                             else:
@@ -60,7 +60,7 @@ class For_no_redirect_domains:
                                 else:
                                     ml_sec_domain_classification = 9
                     else:
-                        if ad_density and tld_poor:
+                        if ad_density and tld_poor and html_length > 2000:
                             # self.__logger.info('domain is a MFA')
                             ml_sec_domain_classification = 3
                         else:

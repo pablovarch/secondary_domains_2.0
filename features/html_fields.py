@@ -142,7 +142,8 @@ class html_fields:
             WHERE
                 sd.graymarket_label IS NULL
                 AND sd.online_status = 'Online'
-                AND sd.redirect_domain = False;
+                AND sd.redirect_domain = False
+                AND sd.ml_media_type_id != 17;
         """
         list_all_domains = []
         conn = self._db_connect()
