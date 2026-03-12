@@ -29,7 +29,7 @@ logger.info('Loading script')
 OPENAI_APIKEY = settings.openia_apikey
 
 # Valid media type IDs
-VALID_MEDIA_TYPES = {1, 3, 4, 2, 6, 16, 14, 8, 9, 10, 13, 7, 12, 17}
+VALID_MEDIA_TYPES = {1, 3, 4, 2, 6, 5, 14, 8, 9, 10, 13, 7, 12, 17}
 
 # Configuration constants
 MAX_HTML_CHARS = 80000  # ~5k tokens approx
@@ -43,7 +43,7 @@ db_pool: pool.ThreadedConnectionPool | None = None
 
 
 class MediaTypeResponse(BaseModel):
-    media_type: Literal[1, 3, 4, 2, 6, 16, 14, 8, 9, 10, 13, 7, 12, 17]
+    media_type: Literal[1, 3, 4, 2, 6, 5, 14, 8, 9, 10, 13, 7, 12, 17]
 
 
 
@@ -60,7 +60,7 @@ If the content is present but ambiguous, use "Other" (ID: 12).
 If the content is blocked or missing (parking / captcha / access denied / region blocked), use "invalid" (ID: 17).
 
 Valid media_type IDs:
-1, 3, 4, 2, 6, 16, 14, 8, 9, 10, 13, 7, 12, 17
+1, 3, 4, 2, 6, 5, 14, 8, 9, 10, 13, 7, 12, 17
 
 Your response must be compatible with the MediaTypeResponse schema: an object with a single field:
 - media_type: one of the integer IDs above.
@@ -150,14 +150,14 @@ Do NOT use Games for:
 - Betting/casino game sites (use Other, ID: 12, unless clearly sports betting → Sports, ID: 2)
 
 
-### ID: 16 - Books
-Classify as Books if the site is mainly about:
+### ID: 5 - Publishing
+Classify as Publishing if the site is mainly about:
 - Online PDF/book download sites (ebooks, novels, manuals)
 - Book marketplaces (physical or digital)
 - Audiobook download or streaming sites
 - Scientific research/document repositories (papers, journals, academic publications)
 
-Do NOT use Books for:
+Do NOT use Publishing for:
 - Manga-only sites (use Manga, ID: 4)
 - Sites with manga and anime (use Anime, ID: 3)
 - General college/university sites that focus on institutional information (use Other, ID: 12)
@@ -209,7 +209,7 @@ Do NOT use News for:
 
 ### ID: 13 - Content Host
 Classify as Content Host when the site is a general file hosting or distribution platform:
-- General download sites hosting multiple media types (movies, series, games, software, music, books, etc.)
+- General download sites hosting multiple media types (movies, series, games, software, music, Publishing, etc.)
 - Torrent or file indexing sites with several distinct categories
 
 Use Content Host (ID: 13) when no single media type clearly dominates and the main role is indexing/hosting diverse files.
@@ -232,7 +232,7 @@ Classify as Other when the site does not fit clearly into any of the above media
 - Corporate or industrial equipment sites
 - General betting or casino sites
 - College/university sites focused on institutional information (not mainly online courses)
-- Any general-purpose site that is not primarily about Film & TV, Anime, Manga, Sports, Games, Books, Online Courses, Music, Adult, News, Content Host or Software
+- Any general-purpose site that is not primarily about Film & TV, Anime, Manga, Sports, Games, Publishing, Online Courses, Music, Adult, News, Content Host or Software
 
 
 ### ID: 17 - invalid
@@ -251,7 +251,7 @@ Only use invalid (ID: 17) when the problem is missing/blocked content, not ambig
 
 - Follow the MediaTypeResponse schema.
 - Set `media_type` to EXACTLY ONE of the following integer IDs:
-  1, 3, 4, 2, 6, 16, 14, 8, 9, 10, 13, 7, 12, 17
+  1, 3, 4, 2, 6, 5, 14, 8, 9, 10, 13, 7, 12, 17
 - Do NOT include explanations or additional fields.
 '''
 
@@ -410,7 +410,7 @@ def get_all_discovery_domains() -> list[int]:
             FROM secondary_domains
             WHERE sec_domain_media_type_id IS NULL
               AND online_status = 'Online'
-              and added > '2025-01-01'
+              AND ml_sec_domain_classification is null
             -- LIMIT 1000
         """
         

@@ -59,7 +59,7 @@ class secondary_domains_crawler:
                             sec_domain_html_id = self.__secondary_domains.get_secondary_domain_html_id(sec_domain_id)
                             if not sec_domain_html_id:
                                 self.__logger.info(f'save html: {sec_domain}')
-                                self.__secondary_domains.save_secondary_domain_html(sec_domain_id,dict_feature_domain['html'])
+                                self.__secondary_domains.save_secondary_domain_html(sec_domain_id,dict_feature_domain)
 
 
 

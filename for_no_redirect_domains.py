@@ -15,6 +15,7 @@ class For_no_redirect_domains:
         self.__logger.info('getting all Online domains on secondary_domains')
         list_to_scan = self.get_all_online_secondary_domains()
         dict_graymarket = {
+            'mfa': 3,
             'Adult Content': 5,
             'Gambling & Betting': 6,
             'Cryptocurrency Speculation': 7,
@@ -36,8 +37,9 @@ class For_no_redirect_domains:
             tld_poor = dom['tld_poor']
             is_high_risk_geo = dom['is_high_risk_geo']
             html_length = dom['html_length']
+            html_len = int(html_length or 0)
             # check poor ssl
-            if ssl_poor and not high_traffic and graymarket_label == 'undeterminated' and html_length < 1000:
+            if ssl_poor and not high_traffic and graymarket_label == 'undeterminated' and html_len < 1000:
                 # self.__logger.info('domain is a referal_cloaking')
                 ml_sec_domain_classification = 2
             else:
@@ -50,7 +52,7 @@ class For_no_redirect_domains:
                             # self.__logger.info('domain is a comercial target')
                             ml_sec_domain_classification = 4
                         else:
-                            if ad_density and tld_poor:
+                            if ad_density and tld_poor and html_length > 2000:
                                 # self.__logger.info('domain is a MFA')
                                 ml_sec_domain_classification = 3
                             else:
@@ -60,7 +62,7 @@ class For_no_redirect_domains:
                                 else:
                                     ml_sec_domain_classification = 9
                     else:
-                        if ad_density and tld_poor:
+                        if ad_density and tld_poor and html_length > 2000:
                             # self.__logger.info('domain is a MFA')
                             ml_sec_domain_classification = 3
                         else:

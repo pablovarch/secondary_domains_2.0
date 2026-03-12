@@ -53,7 +53,7 @@ class Secondary_domains:
     
     
 
-    def save_secondary_domain_html(self, sec_domain_id, html):
+    def save_secondary_domain_html(self, sec_domain_id, dict_feature_domain):
         """
         This method try to connect to the DB and save the data
         :param sec_domain_id: id of the secondary domain
@@ -73,8 +73,12 @@ class Secondary_domains:
             raise
 
         else:
-            sql_string = "INSERT INTO public.secondary_domains_html (sec_domain_id, html_content) VALUES(%s,%s);"
-            data = (sec_domain_id, html)
+            sql_string = ("INSERT INTO public.secondary_domains_html (sec_domain_id,"
+                          " html_content, terms_of_use, privacy_policy) VALUES(%s,%s,%s,%s);")
+            data = (sec_domain_id,
+                    dict_feature_domain['html'],
+                    dict_feature_domain['terms_of_use'],
+                    dict_feature_domain['privacy_policy'])
             try:
                 # Try to execute the sql_string to save the data
                 cursor.execute(sql_string, data)
@@ -100,17 +104,12 @@ class Secondary_domains:
             print('::DBConnect:: cant connect to DB Exception: {}'.format(e))
             raise
         else:
-            sql_string = """
-                SELECT DISTINCT sd.sec_domain_id , sd.sec_domain
-                from secondary_domains sd
-                where
-                sd.online_status = 'Online-Bulk-check'
-                """
+
             sql_string = """SELECT sd.sec_domain_id , sd.sec_domain
                                         FROM secondary_domains sd
                                         where sd.online_status is null
                                         and sd.ml_sec_domain_classification is null
-                                         and sd.added > '2025-12-01'
+                                         --and sd.added > '2025-12-01'
                                          """
 
             # sql_string = """

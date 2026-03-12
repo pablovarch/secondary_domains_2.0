@@ -59,7 +59,7 @@ class EnforcementResponse(BaseModel):
 
 ENFORCEMENT_CLASSIFICATION_PROMPT = '''You are a web domain enforcement classifier (second stage in a pipeline).
 
-Stage 1 has already classified the domain into a MEDIA TYPE (e.g. Film & TV, Anime, Games, Software, Books, Music, Adult, Sports, News, Content Host, Gambling, Social Media, Other, etc.).
+Stage 1 has already classified the domain into a MEDIA TYPE (e.g. Film & TV, Anime, Games, Software, Publishing, Music, Adult, Sports, News, Content Host, Gambling, Social Media, Other, etc.).
 
 Your task in Stage 2 is to analyze:
 - The MEDIA TYPE
@@ -87,7 +87,7 @@ INPUT FIELDS (CONTEXT)
 -------------------------
 
 You will receive a user message with:
-- media_type: the media type name (e.g. "Film & TV", "Anime", "Games", "Software", "Books", "Music", "Adult", "Sports", "News", "Content Host", "Gambling", "Other", etc.)
+- media_type: the media type name (e.g. "Film & TV", "Anime", "Games", "Software", "Publishing", "Music", "Adult", "Sports", "News", "Content Host", "Gambling", "Other", etc.)
 - html: the raw HTML of the site (may be truncated)
 - piracy_brand_known: a boolean indicating whether this domain is associated with a known piracy brand (True/False)
 - ssl_score: a numeric score where higher values indicate a more trustworthy / legitimate configuration, and lower values indicate more suspicious configuration. This score is only a weak hint: HTML evidence and the definitions below are more important.
@@ -125,7 +125,7 @@ Below are detailed definitions and rules.
 Use ID 1 when the domain is an ENFORCEABLE pirate site:
 
 General definition:
-- Offers well-known commercial content (movies, series, anime, games, software, music, books, sports, etc.) WITHOUT a license.
+- Offers well-known commercial content (movies, series, anime, games, software, music, Publishing, sports, etc.) WITHOUT a license.
 AND
 - Content is published by the site owner
 OR
@@ -149,9 +149,9 @@ Software:
 - ENFORCE if the site offers commercial (paid) software for free, or cracked versions, beyond any legitimate trial period.
 - EXCLUDE (ID 0) if it is only reviews, product information, tutorials, or links to official stores.
 
-Books:
-- ENFORCE if the site offers commercial books (non-free titles) for free download without authorization.
-- EXCLUDE (ID 0) if it offers free/public-domain books, or clearly authorized/legitimate downloads.
+Publishing:
+- ENFORCE if the site offers commercial Publishing (non-free titles) for free download without authorization.
+- EXCLUDE (ID 0) if it offers free/public-domain Publishing, or clearly authorized/legitimate downloads.
 
 Music:
 - ENFORCE if the site offers direct downloads of copyrighted music content (songs, full albums) without authorization.
@@ -323,7 +323,7 @@ When deciding, follow this priority order:
 7) Else, if it is a CONTENT HOST/storage service -> label_id = 9 (unless obviously promoting piracy → then ENFORCE).
 8) Else, decide between ENFORCE (ID 1) and EXCLUDE (ID 0) based on:
    - Presence of clearly infringing commercial content vs. only reviews/news.
-   - Media type (Film & TV, Anime, Games, Software, Books, Music, Sports, Adult, etc.).
+   - Media type (Film & TV, Anime, Games, Software, Publishing, Music, Sports, Adult, etc.).
    - Piracy brand indicator: if piracy_brand_known is True, strongly favor ENFORCE or a specific piracy label.
    - SSL score: low scores slightly increase suspicion; high scores slightly favor Exclude, but HTML and behavior are more important.
 
@@ -664,7 +664,7 @@ MEDIA_TYPE_ID_TO_NAME: dict[int, str] = {
     4: "Manga",
     2: "Sports",
     6: "Games",
-    16: "Books",
+    5: "Publishing",
     14: "Online Courses",
     8: "Music",
     9: "Adult",

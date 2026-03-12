@@ -8,7 +8,9 @@ from typing import Any
 import requests
 from psycopg2 import pool
 
-from settings import db_connect, ssl_apikey
+from settings import db_connect, ssl_apikey, DB_CONNECTION
+
+db_connect = DB_CONNECTION
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
