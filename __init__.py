@@ -19,6 +19,7 @@ import rude_rules
 import block_class
 import sec_dom_software_classifier
 import final_update_Script
+import mfa_no_ads
 from piracy_class import openai_media_type_sec_domain
 from piracy_class import ssl_analyzer_sec_domain
 from piracy_class import sec_dom_piracy_classifier_v2
@@ -31,7 +32,8 @@ if __name__ == '__main__':
     google_search_results.Google_Search_results().main()
     secondary_domains_crawler.secondary_domains_crawler().crawl()
     # jarm_rules.Jarm_processing().main()
-    # sw_offline_class2.Sw_offline_class().main()
+    sw_offline_class2.Sw_offline_class().main()
+    mfa_no_ads.main()
     # block_class.Block_class().main()
     # asyncio.run(openai_media_type_sec_domain.main())
     # asyncio.run(ssl_analyzer_sec_domain.run_backfill())
