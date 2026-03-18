@@ -24,12 +24,13 @@ def update_secondary_domains_from_invalid_html():
                 cursor.execute(query)
                 filas_actualizadas = cursor.rowcount
 
-        logging.info("Filas actualizadas: %s", filas_actualizadas)
+        logging.info("Filas actualizadas (invalid_html): %s", filas_actualizadas)
         return filas_actualizadas
 
     except Exception as e:
-        logging.exception("Error al ejecutar el update: %s", e)
+        logging.exception("Error al ejecutar el update (invalid_html): %s", e)
         raise
+
 
 def update_secondary_domains_publishing_sites():
     query = """
@@ -46,9 +47,25 @@ def update_secondary_domains_publishing_sites():
                 cursor.execute(query)
                 filas_actualizadas = cursor.rowcount
 
-        logging.info("Filas actualizadas: %s", filas_actualizadas)
+        logging.info("Filas actualizadas (publishing_sites): %s", filas_actualizadas)
         return filas_actualizadas
 
     except Exception as e:
-        logging.exception("Error al ejecutar el update: %s", e)
+        logging.exception("Error al ejecutar el update (publishing_sites): %s", e)
         raise
+
+
+def main():
+    logging.info("=== Inicio del proceso de actualización ===")
+
+    logging.info("--- Ejecutando: update_secondary_domains_from_invalid_html ---")
+    filas_invalid_html = update_secondary_domains_from_invalid_html()
+
+    logging.info("--- Ejecutando: update_secondary_domains_publishing_sites ---")
+    filas_publishing = update_secondary_domains_publishing_sites()
+
+    logging.info("=== Proceso finalizado. Total filas actualizadas: %s ===", filas_invalid_html + filas_publishing)
+
+
+if __name__ == "__main__":
+    main()
