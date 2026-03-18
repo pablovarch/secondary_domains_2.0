@@ -67,7 +67,7 @@ class ssl_analyzer :
         print(f"Guardando en lotes de {batch_size} registros")
 
         for row in supply_list:
-            domain = row['sec_domain']
+            domain = row['sec_domain_root']
             processed += 1
 
             print(f"{datetime.now()} - [{processed}/{total}] Procesando {domain}...")
