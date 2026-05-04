@@ -4,6 +4,7 @@ import psycopg2
 import pandas as pd
 from sqlalchemy import create_engine
 
+
 # Para Clasificar dominios de Betting y excluir sitios con piracy brand
 
 class Jarm_processing:
@@ -19,13 +20,12 @@ class Jarm_processing:
             pool_pre_ping=True  # robustez ante conexiones caídas
         )
         # Correcting the syntax error by removing the invalid 'DB Connection' line
-        with alchemyEngine.connect() as conn:  
+        with alchemyEngine.connect() as conn:
             sec_domain = pd.read_sql(""" select sec_domain_id,sec_domain, exc_domain_id, google_search_results, online_status, redirect_domain from secondary_domains 
             where ml_sec_domain_classification is null
             and sec_domain_source = 'Domain Telemetry'
             and google_search_results is not null
             -- and online_status is not null""", conn)
-
 
         def proccess_domains(row):
             if row["google_search_results"] <= 2:
@@ -34,16 +34,24 @@ class Jarm_processing:
                 return 3
             if row['google_search_results'] >= 50:
                 return 4
-        
-        sec_domain['ml_sec_domain_classification'] = sec_domain.apply(proccess_domains, axis=1)
-        
-        sec_domain = sec_domain.dropna(subset=['ml_sec_domain_classification'])
 
-        df_filtered = sec_domain[['sec_domain_id', 'ml_sec_domain_classification']]
+        sec_domain['ml_sec_domain_classification'] = sec_domain.apply(proccess_domains, axis=1)
+
+        sec_domain = sec_domain.dropna(subset=['ml_sec_domain_classification'])
+        sec_domain['confidence'] = sec_domain['ml_sec_domain_classification'].apply(
+            lambda classification: 'LOW' if classification == 2 else None
+        )
+        sec_domain['recommended_action_id'] = sec_domain['ml_sec_domain_classification'].apply(
+            lambda classification: 6 if classification == 2 else None
+        )
+        sec_domain['justification'] = sec_domain['ml_sec_domain_classification'].apply(
+            lambda classification: 6 if classification == 2 else None
+        )
+
+        df_filtered = sec_domain[
+            ['sec_domain_id', 'ml_sec_domain_classification', 'confidence', 'recommended_action_id', 'justification']]
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
-
-
 
     def update_domains(self, save_data):
         """
@@ -65,21 +73,36 @@ class Jarm_processing:
 
             # Preparamos los valores (tuplas de domain_id y valor nuevo)
             data_to_update = [
-                (domain['sec_domain_id'], domain['ml_sec_domain_classification']) for domain in save_data
+                (
+                    domain['sec_domain_id'],
+                    domain['ml_sec_domain_classification'],
+                    domain.get('confidence'),
+                    domain.get('recommended_action_id'),
+                    domain.get('justification')
+                ) for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
-            values_template = ",".join(["(%s, %s)"] * len(data_to_update))
+            values_template = ",".join(["(%s, %s, %s, %s, %s)"] * len(data_to_update))
             flat_values = []
             for tup in data_to_update:
                 flat_values.extend(tup)  # aplanamos la lista para pasar a execute
 
             sql = f"""
-                WITH updates (sec_domain_id, value_to_update) AS (
+                WITH updates (
+                    sec_domain_id,
+                    value_to_update,
+                    confidence_to_update,
+                    recommended_action_id_to_update,
+                    justification_to_update
+                ) AS (
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
-                SET ml_sec_domain_classification = u.value_to_update
+                SET ml_sec_domain_classification = u.value_to_update,
+                    confidence = COALESCE(u.confidence_to_update, t.confidence),
+                    recommended_action_id = COALESCE(u.recommended_action_id_to_update, t.recommended_action_id),
+                    justification = COALESCE(u.justification_to_update, t.justification)
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """
