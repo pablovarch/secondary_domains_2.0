@@ -5,7 +5,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 
 
-# Para Clasificar dominios de Betting y excluir sitios con piracy brand
+# Para clasificar dominios de Betting y excluir sitios con piracy brand
 
 class ConfidenceScript:
     def __init__(self):
@@ -15,56 +15,61 @@ class ConfidenceScript:
         self.__logger.info('-- starting ConfidenceScript')
 
         alchemyEngine = create_engine(
-            db_connect_df,  # ej: "postgresql+psycopg2://user:pass@host:5432/dbname"
+            db_connect_df,
             pool_recycle=3600,
-            pool_pre_ping=True  # robustez ante conexiones caídas
+            pool_pre_ping=True
         )
-        # Correcting the syntax error by removing the invalid 'DB Connection' line
-        with alchemyEngine.connect() as conn:
-            sec_domain = pd.read_sql(""" select 
-                                            sd.sec_domain_id,
-                                            sd.sec_domain_source ,
-                                            sd.ml_sec_domain_classification 
-                                            from secondary_domains sd 
-                                            where  sd.publication_status = 0
-                                            and sd.sec_domain_source is not null 
-                                            and sd.ml_sec_domain_classification is not null""",
-                                     conn)
 
-        def proccess_domains(row):
+        with alchemyEngine.connect() as conn:
+            sec_domain = pd.read_sql("""
+                SELECT
+                    sd.sec_domain_id,
+                    sd.sec_domain_source,
+                    sd.ml_sec_domain_classification
+                FROM secondary_domains sd
+                WHERE sd.publication_status = 0
+                  AND sd.sec_domain_source IS NOT NULL
+                  AND sd.ml_sec_domain_classification IS NOT NULL
+            """, conn)
+
+        def process_domains(row):
             source = row["sec_domain_source"]
-            cls = row['ml_sec_domain_classification']
+            cls = row["ml_sec_domain_classification"]
 
             if source == 'SimilarWeb':
                 if cls == 2:  # Referral cloaking
-                    return 'HIGH', '1', '1'
+                    return 'HIGH', 1, 1
                 if cls == 3:  # MFA
-                    return 'MEDIUM', '2', '4'
+                    return 'MEDIUM', 2, 4
+
             elif source == 'Ad Sniffer':
                 if cls == 2:  # Referral cloaking
-                    return 'MEDIUM', '2', '2'
+                    return 'MEDIUM', 2, 2
                 if cls == 3:  # MFA
-                    return 'LOW', '5', '3'
+                    return 'LOW', 5, 3
 
-            return None, None, None  # fallback siempre alcanzable
+            return None, None, None
 
-        result = sec_domain.apply(proccess_domains, axis=1, result_type='expand')
+        result = sec_domain.apply(process_domains, axis=1, result_type='expand')
         result.columns = ['confidence', 'recommended_action_id', 'justification']
-        sec_domain = pd.concat([sec_domain, result], axis=1)
 
+        sec_domain = pd.concat([sec_domain, result], axis=1)
         sec_domain = sec_domain.dropna(subset=['confidence'])
 
-        df_filtered = sec_domain[['sec_domain_id', 'confidence','recommended_action_id', 'justification']]
+        df_filtered = sec_domain[
+            ['sec_domain_id', 'confidence', 'recommended_action_id', 'justification']
+        ].copy()
+
         data_to_save = df_filtered.to_dict('records')
-        # self.update_domains(data_to_save)
+        self.update_domains(data_to_save)
 
     def update_domains(self, save_data):
         """
-        Actualiza masivamente secondary_domains usando los campos:
+        Actualiza masivamente secondary_domains usando:
         - sec_domain_id
-        - confidence
-        - recommended_action_id
-        - justification
+        - confidence (varchar)
+        - recommended_action_id (int2)
+        - justification (int2)
         """
         if not save_data:
             print("No data to update.")
@@ -87,10 +92,10 @@ class ConfidenceScript:
 
             data_to_update = [
                 (
-                    row['sec_domain_id'],
-                    row['confidence'],
-                    row['recommended_action_id'],
-                    row['justification']
+                    int(row['sec_domain_id']) if row['sec_domain_id'] is not None else None,
+                    str(row['confidence']) if row['confidence'] is not None else None,
+                    int(row['recommended_action_id']) if row['recommended_action_id'] not in (None, '') else None,
+                    int(row['justification']) if row['justification'] not in (None, '') else None,
                 )
                 for row in save_data
             ]
@@ -99,13 +104,15 @@ class ConfidenceScript:
             flat_values = [value for row in data_to_update for value in row]
 
             sql = f"""
-                WITH updates (
-                    sec_domain_id,
-                    confidence,
-                    recommended_action_id,
-                    justification
-                ) AS (
-                    VALUES {values_template}
+                WITH updates AS (
+                    SELECT
+                        v.sec_domain_id::bigint AS sec_domain_id,
+                        v.confidence::varchar AS confidence,
+                        v.recommended_action_id::int2 AS recommended_action_id,
+                        v.justification::int2 AS justification
+                    FROM (
+                        VALUES {values_template}
+                    ) AS v(sec_domain_id, confidence, recommended_action_id, justification)
                 )
                 UPDATE public.secondary_domains AS t
                 SET confidence = u.confidence,

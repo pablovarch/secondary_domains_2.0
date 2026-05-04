@@ -26,7 +26,7 @@ DOMAIN_PROCESS_LIMIT = int(os.getenv("DOMAIN_PROCESS_LIMIT", "0"))
 SECONDARY_DOMAIN_TABLE = os.getenv("SECONDARY_DOMAIN_TABLE", "secondary_domains")
 SECONDARY_DOMAIN_ID_COLUMN = os.getenv("SECONDARY_DOMAIN_ID_COLUMN", "sec_domain_id")
 DOMAIN_ID_COLUMN = os.getenv("DOMAIN_ID_COLUMN", "domain_id")
-CLASSIFICATION_COLUMN = os.getenv("CLASSIFICATION_COLUMN", "ml_sec_domain_class_id")
+CLASSIFICATION_COLUMN = os.getenv("CLASSIFICATION_COLUMN", "ml_sec_domain_classification")
 PUBLICATION_STATUS_COLUMN = os.getenv("PUBLICATION_STATUS_COLUMN", "publication_status")
 
 AD_CHAIN_URLS_TABLE = os.getenv("AD_CHAIN_URLS_TABLE", "ad_chain_urls")
