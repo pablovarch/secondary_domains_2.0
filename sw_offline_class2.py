@@ -561,21 +561,39 @@ class Sw_offline_class:
         try:
             cursor = conn.cursor()
 
+            def clean_value(value, value_type=None):
+                if value is None:
+                    return None
+                try:
+                    if pd.isna(value):
+                        return None
+                except TypeError:
+                    pass
+
+                if value_type == 'int':
+                    return int(value)
+                if value_type == 'str':
+                    return str(value)
+                return value
+
             # Preparamos los valores (tuplas de domain_id y valor nuevo)
             data_to_update = [
                 (
-                    domain['sec_domain_id'],
-                    domain['ml_sec_domain_classification'],
-                    domain['sec_domain_source'],
-                    domain['decision_source'],
-                    domain.get('confidence'),
-                    domain.get('recommended_action_id'),
-                    domain.get('justification')
+                    clean_value(domain['sec_domain_id'], 'int'),
+                    clean_value(domain['ml_sec_domain_classification'], 'int'),
+                    clean_value(domain['sec_domain_source'], 'str'),
+                    clean_value(domain['decision_source'], 'str'),
+                    clean_value(domain.get('confidence'), 'str'),
+                    clean_value(domain.get('recommended_action_id'), 'int'),
+                    clean_value(domain.get('justification'), 'int')
                 ) for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
-            values_template = ",".join(["(%s, %s, %s, %s, %s, %s, %s)"] * len(data_to_update))
+            values_template = ",".join(
+                ["(%s::bigint, %s::smallint, %s::varchar, %s::varchar, %s::varchar, %s::smallint, %s::smallint)"]
+                * len(data_to_update)
+            )
             flat_values = []
             for tup in data_to_update:
                 flat_values.extend(tup)  # aplanamos la lista para pasar a execute
