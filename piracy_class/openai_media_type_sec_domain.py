@@ -13,16 +13,12 @@ from settings import DB_CONNECTION
 from dotenv import load_dotenv
 from typing import Literal
 
-
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-
 
 load_dotenv()
 logger.info('Loading script')
@@ -36,15 +32,14 @@ MAX_HTML_CHARS = 80000  # ~5k tokens approx
 MAX_CONCURRENT_REQUESTS = 5  # Semaphore limit for API calls
 DB_POOL_MIN_CONN = 1
 DB_POOL_MAX_CONN = 10
+SECONDARY_DOMAIN_LIMIT = int(os.getenv("SECONDARY_DOMAIN_LIMIT", "4000"))
 
 # Database connection pool (initialized lazily)
 db_pool: pool.ThreadedConnectionPool | None = None
 
 
-
 class MediaTypeResponse(BaseModel):
     media_type: Literal[1, 3, 4, 2, 6, 5, 14, 8, 9, 10, 13, 7, 12, 17]
-
 
 
 MEDIA_TYPE_CLASSIFICATION_PROMPT = '''You are a media type classifier.
@@ -91,11 +86,11 @@ Do NOT use Film & TV for:
 
 
 ### ID: 3 - Anime
-Classify as Anime if the site is mainly about:
-- Online anime streaming
-- Sites that offer BOTH anime AND manga content together
+Classify as Anime if the site's PRIMARY content is anime (Japanese animated series/films) or anime+manga:
+- Online anime streaming sites where anime episodes/films are the main catalog
+- Sites that offer BOTH anime AND manga content together as the main offering
 - Stores EXCLUSIVELY selling anime/manga related items (clothes, toys, figures, magazines, etc.)
-- Torrent or download sites offering anime content (with or without manga)
+- Torrent or download sites where anime episodes/films are the PRIMARY content being distributed
 
 Priority rule:
 - If the site offers BOTH anime AND manga content, prefer Anime (ID: 3) instead of Manga (ID: 4).
@@ -104,6 +99,9 @@ Do NOT use Anime for:
 - General cartoon sites mixed with movies/series (prefer Film & TV, ID: 1, if focused on video/TV)
 - General download sites with many categories
 - Manga-only sites without anime content (use Manga, ID: 4)
+- Video game download/torrent sites that merely have "Anime" as one genre tag among many (Action, RPG, Racing, Strategy, etc.) - these are Games (ID: 6)
+- Video games with anime-style art, Japanese aesthetic, or anime-inspired characters - the medium is still a GAME, use Games (ID: 6)
+- Sites distributing visual novels as PC games with anime art - use Games (ID: 6)
 
 
 ### ID: 4 - Manga
@@ -138,29 +136,62 @@ Do NOT use Sports for:
 
 ### ID: 6 - Games
 Classify as Games if the site is mainly dedicated to video games:
-- Game download sites
-- Cheat codes, game cracks, or trainers sites
-- Torrent sites EXCLUSIVELY for game content
-- Online gaming platforms and stores (Steam, Epic Games, EA, Battle.net)
-- Sites for in-game currency or tokens (e.g. coins, skins marketplaces)
+- PC/console game download, repack, crack, torrent or "Free Download" sites (e.g. IGG-Games, FitGirl Repacks, DODI Repacks, SteamRIP, KenGamer, Skidrow)
+- Cheat codes, game cracks, trainers, game mods or game fixes sites
+- Torrent sites where PC/console games are the primary content
+- Online gaming platforms and stores (Steam, Epic Games, EA, Battle.net, GOG, itch.io)
+- Sites for in-game currency, tokens, skins or account marketplaces
+- Visual novel download sites (visual novels are games, even with anime art)
+
+Strong signals that indicate Games (even when "anime", "torrent" or "download" appear):
+- Titles with version tags like "(v1.2.3)", "(v20260408)", "Premium Edition", "Definitive Edition", "GOTY", "Deluxe Edition"
+- Phrases "Free Download", "PC Game", "Game Setup", "PC Free Download", "Cracked By", "Repack", "Pre-installed", "Direct Link and Torrent", "All DLCs", "Denuvo", "CODEX", "RELOADED"
+- Game metadata: "Game Size: X GB", "Publisher:", "Developer:", "Release Date:", "MULTi13", "From X GB"
+- Game genres listed as tags: Action, RPG, Adventure, Racing, Strategy, Simulation, Shooter, Survival, Horror, Point & Click, Visual Novel, Sandbox, Roguelike, MMO, FPS, RTS (even if "Anime" is also one of the genre tags - having Anime as ONE genre among many game genres still means it's a Games site)
+- Menu items like "Game List", "Game Request", "All Games (A-Z)", "Categories" full of game genres, "Most Downloaded" (games), "Latest News" about games
+- Known game franchises mentioned (Assassin's Creed, GTA, Resident Evil, EA Sports, Call of Duty, Dark Souls, Doom, Final Fantasy, etc.)
+
+Disambiguation:
+- Game site with "Anime" as a genre tag -> Games (ID: 6), NOT Anime (ID: 3)
+- Games with anime-style art or Japanese visuals -> Games (ID: 6), NOT Anime (ID: 3)
+- A site distributing game repacks of MANY titles across many genres is still Games (ID: 6), NOT Content Host (ID: 13), because all items are one media type (games)
 
 Do NOT use Games for:
-- General download sites that also host software, movies, etc. (use Content Host, ID: 13)
+- General download sites that truly mix games + movies + music + software together (use Content Host, ID: 13)
 - Clothing marketplaces with some game-related merchandise (use Other, ID: 12)
-- Betting/casino game sites (use Other, ID: 12, unless clearly sports betting → Sports, ID: 2)
+- Betting/casino game sites (use Other, ID: 12, unless clearly sports betting -> Sports, ID: 2)
 
 
 ### ID: 5 - Publishing
-Classify as Publishing if the site is mainly about:
-- Online PDF/book download sites (ebooks, novels, manuals)
+Classify as Publishing if the site's PRIMARY focus is books, ebooks, PDFs, documents or written publications, including:
+- Online PDF/book download or read-online sites (ebooks, novels, manuals, textbooks)
+- Book catalogs, libraries or repositories (free or paid, legal or not)
 - Book marketplaces (physical or digital)
 - Audiobook download or streaming sites
-- Scientific research/document repositories (papers, journals, academic publications)
+- Scientific research/document repositories (papers, journals, academic publications, theses)
+- Document sharing platforms focused on PDFs/DOCs (e.g. Scribd-like, vdoc.pub, pdfroom, bookfrom.net, pdfdrive)
+- Sites offering ePUB, MOBI, AZW, PDF or other book/document formats for download or reading
+
+Strong signals that indicate Publishing (even if the word "download" appears):
+- Book covers displayed as main content grid/listing
+- Author names, ISBN, publisher, publication year, number of pages
+- Literary or academic categories (Fiction, Romance, Medicine, Psychology, Self-help, Thriller, etc.)
+- File formats restricted to books/documents: PDF, ePUB, MOBI, AZW, DJVU
+- Breadcrumbs or menus like "All Categories > [Author name]", "Home > [Genre] > [Book title]"
+- Book metadata: ratings, reviews, pages count, file size of a single book
+- Terms like "Read online", "Free ebooks", "PDF books", "Book library", "Audiobook"
+
+Priority / disambiguation rules:
+- If the site offers ONLY books/PDFs/documents (even many of them, even with a "Download" button), use Publishing (ID: 5), NOT Content Host (ID: 13).
+- Content Host (ID: 13) requires MIXED distinct media categories (e.g. software + movies + music + books together). A site that only hosts books/PDFs across many genres is still Publishing.
+- A book cover showing suggestive imagery (e.g. romance novel cover) does NOT make the site Adult (ID: 9) if the structure is clearly a book catalog. Only use Adult (ID: 9) when the CONTENT ITSELF is pornographic, not when book covers are suggestive.
+- If the site is dedicated to academic/scientific papers or medical/technical documents, still use Publishing (ID: 5).
 
 Do NOT use Publishing for:
 - Manga-only sites (use Manga, ID: 4)
 - Sites with manga and anime (use Anime, ID: 3)
 - General college/university sites that focus on institutional information (use Other, ID: 12)
+- Sites that truly mix books with unrelated media types like software, games, movies, music (use Content Host, ID: 13)
 
 
 ### ID: 14 - Online Courses
@@ -208,11 +239,19 @@ Do NOT use News for:
 
 
 ### ID: 13 - Content Host
-Classify as Content Host when the site is a general file hosting or distribution platform:
-- General download sites hosting multiple media types (movies, series, games, software, music, Publishing, etc.)
-- Torrent or file indexing sites with several distinct categories
+Classify as Content Host ONLY when the site hosts/distributes MULTIPLE DISTINCT media categories simultaneously:
+- General download sites hosting a MIX of movies + series + games + software + music + books, etc.
+- Torrent or file indexing sites with SEVERAL distinct media categories (not just many items of the same category)
 
-Use Content Host (ID: 13) when no single media type clearly dominates and the main role is indexing/hosting diverse files.
+Key requirement: Content Host (ID: 13) requires MIXED media types. If a single media type clearly dominates, use THAT specific category:
+- Only books/PDFs/documents (even thousands of them) -> Publishing (ID: 5)
+- Only movies/series -> Film & TV (ID: 1)
+- Only music -> Music (ID: 8)
+- Only games -> Games (ID: 6)
+- Only software -> Software (ID: 7)
+- Only anime (with or without manga) -> Anime (ID: 3)
+
+Use Content Host (ID: 13) only when NO single media type dominates and the site's main role is indexing/hosting a diverse mix of unrelated file categories.
 
 
 ### ID: 7 - Software
@@ -268,28 +307,31 @@ def extract_semantic_content(html_content: str) -> dict:
         'headings': [],
         'body_text': ''
     }
-    
+
     # Extract <title>
     title_match = re.search(r'<title[^>]*>([^<]+)</title>', html_content, re.IGNORECASE)
     if title_match:
         result['title'] = title_match.group(1).strip()
-    
+
     # Extract meta description
-    meta_desc = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\'>]+)["\']', html_content, re.IGNORECASE)
+    meta_desc = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\'>]+)["\']', html_content,
+                          re.IGNORECASE)
     if not meta_desc:
-        meta_desc = re.search(r'<meta[^>]*content=["\']([^"\'>]+)["\'][^>]*name=["\']description["\']', html_content, re.IGNORECASE)
+        meta_desc = re.search(r'<meta[^>]*content=["\']([^"\'>]+)["\'][^>]*name=["\']description["\']', html_content,
+                              re.IGNORECASE)
     if meta_desc:
         result['meta_description'] = meta_desc.group(1).strip()
-    
+
     # Extract meta keywords
-    meta_kw = re.search(r'<meta[^>]*name=["\']keywords["\'][^>]*content=["\']([^"\'>]+)["\']', html_content, re.IGNORECASE)
+    meta_kw = re.search(r'<meta[^>]*name=["\']keywords["\'][^>]*content=["\']([^"\'>]+)["\']', html_content,
+                        re.IGNORECASE)
     if meta_kw:
         result['meta_keywords'] = meta_kw.group(1).strip()
-    
+
     # Extract headings (h1-h3)
     headings = re.findall(r'<h[1-3][^>]*>([^<]+)</h[1-3]>', html_content, re.IGNORECASE)
     result['headings'] = [h.strip() for h in headings[:10]]  # Limit to 10 headings
-    
+
     return result
 
 
@@ -300,10 +342,10 @@ def preprocess_html(html_content: str) -> str | None:
     """
     if not html_content:
         return None
-    
+
     # Extract semantic content first
     semantic = extract_semantic_content(html_content)
-    
+
     # Build structured prefix with key signals
     prefix_parts = []
     if semantic['title']:
@@ -314,9 +356,9 @@ def preprocess_html(html_content: str) -> str | None:
         prefix_parts.append(f"KEYWORDS: {semantic['meta_keywords']}")
     if semantic['headings']:
         prefix_parts.append(f"HEADINGS: {' | '.join(semantic['headings'])}")
-    
+
     prefix = '\n'.join(prefix_parts)
-    
+
     # Clean body text (remove scripts, styles, tags)
     text = html_content
     text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
@@ -324,17 +366,17 @@ def preprocess_html(html_content: str) -> str | None:
     text = re.sub(r'<[^>]+>', ' ', text)
     text = re.sub(r'[\U00010000-\U0010ffff]', '', text)  # Remove emojis
     text = re.sub(r'\s+', ' ', text).strip()
-    
+
     # Combine prefix + body text
     if prefix:
         full_text = f"{prefix}\n\nCONTENT: {text}"
     else:
         full_text = text
-    
+
     # Truncate to MAX_HTML_CHARS
     if len(full_text) > MAX_HTML_CHARS:
         full_text = full_text[:MAX_HTML_CHARS] + "... [TRUNCATED]"
-    
+
     return full_text if full_text.strip() else None
 
 
@@ -400,36 +442,37 @@ def get_all_discovery_domains() -> list[int]:
     conn = None
     cursor = None
     domain_ids = []
-    
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         sql_string = """
-            SELECT sec_domain_id 
+            SELECT sec_domain_id
             FROM secondary_domains
             WHERE sec_domain_media_type_id IS NULL
               AND online_status = 'Online'
-              AND ml_sec_domain_classification is null
-            -- LIMIT 1000
+              AND ml_sec_domain_classification IS NULL
+            ORDER BY sec_domain_id DESC
+            LIMIT %s
         """
-        
-        cursor.execute(sql_string)
+
+        cursor.execute(sql_string, (SECONDARY_DOMAIN_LIMIT,))
         results = cursor.fetchall()
-        
+
         if results:
             domain_ids = [row[0] for row in results]
             logger.info(f"Found {len(domain_ids)} domains to process")
         else:
             logger.info("No domains found to process")
-            
+
     except Exception as e:
         logger.error(f"Error getting discovery domains: {e}")
     finally:
         if cursor:
             cursor.close()
         release_db_connection(conn)
-    
+
     return domain_ids
 
 
@@ -441,30 +484,30 @@ def get_html(sec_domain_id: int) -> str | None:
     conn = None
     cursor = None
     html_content = None
-    
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         sql_string = """
             SELECT html_content 
             FROM secondary_domains_html 
             WHERE sec_domain_id = %s
         """
-        
+
         cursor.execute(sql_string, (sec_domain_id,))
         result = cursor.fetchone()
-        
+
         if result:
             html_content = result[0]
-            
+
     except Exception as e:
         logger.error(f"Error getting HTML for sec_domain_id {sec_domain_id}: {e}")
     finally:
         if cursor:
             cursor.close()
         release_db_connection(conn)
-    
+
     return html_content
 
 
@@ -476,21 +519,21 @@ def update_media_type(sec_domain_id: int, sec_domain_media_type_id: int) -> bool
     conn = None
     cursor = None
     success = False
-    
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         sql_string = """
             UPDATE secondary_domains 
             SET sec_domain_media_type_id = %s 
             WHERE sec_domain_id = %s
         """
-        
+
         cursor.execute(sql_string, (sec_domain_media_type_id, sec_domain_id))
         conn.commit()
         success = True
-        
+
     except Exception as e:
         logger.error(f"Error updating media type for sec_domain_id {sec_domain_id}: {e}")
         if conn:
@@ -499,7 +542,7 @@ def update_media_type(sec_domain_id: int, sec_domain_media_type_id: int) -> bool
         if cursor:
             cursor.close()
         release_db_connection(conn)
-    
+
     return success
 
 
@@ -512,9 +555,9 @@ def update_media_type(sec_domain_id: int, sec_domain_media_type_id: int) -> bool
     )
 )
 async def classify_media_type(
-    client: AsyncOpenAI,
-    processed_html: str,
-    sec_domain_id: int
+        client: AsyncOpenAI,
+        processed_html: str,
+        sec_domain_id: int
 ) -> int:
     """
     Classify processed HTML content into a media type using OpenAI.
@@ -544,7 +587,7 @@ async def classify_media_type(
             # Para clasificación: determinismo y bajo coste
             # GPT-5.1 usa reasoning tokens internamente, necesita margen
             temperature=0,
-            max_completion_tokens=128,
+            max_completion_tokens=256,
             store=False,
         )
 
@@ -584,10 +627,11 @@ async def classify_media_type(
         )
         return 12
 
+
 async def process_domain(
-    client: AsyncOpenAI,
-    sec_domain_id: int,
-    semaphore: asyncio.Semaphore
+        client: AsyncOpenAI,
+        sec_domain_id: int,
+        semaphore: asyncio.Semaphore
 ) -> tuple[int, str]:
     """
     Process a single domain: get HTML, classify, and update DB.
@@ -597,32 +641,32 @@ async def process_domain(
         try:
             # Step 1: Get HTML content
             html_content = get_html(sec_domain_id)
-            
+
             if not html_content:
                 logger.warning(f"No HTML found for sec_domain_id {sec_domain_id}, skipping")
                 return (sec_domain_id, 'skipped')
-            
+
             # Step 2: Preprocess HTML
             processed_html = preprocess_html(html_content)
-            
+
             # Step 3: Check if valid
             if invalid_html(processed_html):
                 logger.info(f"Invalid HTML for sec_domain_id {sec_domain_id}, setting media_type to 17 (invalid)")
                 update_media_type(sec_domain_id, 17)
                 return (sec_domain_id, 'processed')
-            
+
             # Step 4: Classify with OpenAI
             media_type_id = await classify_media_type(client, processed_html, sec_domain_id)
-            
+
             # Step 5: Update database
             success = update_media_type(sec_domain_id, media_type_id)
-            
+
             if success:
                 logger.info(f"Successfully updated sec_domain_id {sec_domain_id} with media_type {media_type_id}")
                 return (sec_domain_id, 'processed')
             else:
                 return (sec_domain_id, 'error')
-                
+
         except Exception as e:
             logger.error(f"Error processing sec_domain_id {sec_domain_id}: {e}")
             return (sec_domain_id, 'error')
@@ -631,40 +675,40 @@ async def process_domain(
 async def main():
     """Main async entry point with concurrent processing."""
     logger.info("Starting media type classification process")
-    
+
     # Initialize OpenAI client
     client = AsyncOpenAI(api_key=OPENAI_APIKEY)
-    
+
     # Initialize DB pool
     init_db_pool()
-    
+
     try:
         # Get all domain IDs to process
         domain_ids = get_all_discovery_domains()
-        
+
         if not domain_ids:
             logger.info("No domains to process. Exiting.")
             return
-        
+
         logger.info(f"Processing {len(domain_ids)} domains with {MAX_CONCURRENT_REQUESTS} concurrent requests")
-        
+
         # Create semaphore for rate limiting
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-        
+
         # Create tasks for all domains
         tasks = [
             process_domain(client, sec_domain_id, semaphore)
             for sec_domain_id in domain_ids
         ]
-        
+
         # Execute all tasks concurrently
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Count results
         processed_count = 0
         skipped_count = 0
         error_count = 0
-        
+
         for result in results:
             if isinstance(result, Exception):
                 error_count += 1
@@ -676,7 +720,7 @@ async def main():
                     skipped_count += 1
                 else:
                     error_count += 1
-        
+
         # Summary
         logger.info("=" * 60)
         logger.info("EXECUTION SUMMARY")
@@ -686,7 +730,7 @@ async def main():
         logger.info(f"Errors: {error_count}")
         logger.info("=" * 60)
         logger.info("Ending execution")
-        
+
     finally:
         # Always close the DB pool
         close_db_pool()
@@ -694,3 +738,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

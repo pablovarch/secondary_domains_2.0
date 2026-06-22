@@ -3,8 +3,8 @@ import logging
 import os
 import re
 from datetime import datetime
-
 from dill import settings
+
 from psycopg2 import pool
 from pydantic import BaseModel
 from openai import AsyncOpenAI, RateLimitError, APIConnectionError, APIStatusError
@@ -26,12 +26,12 @@ logger.info('Loading script')
 OPENAI_APIKEY = openia_apikey
 
 # Configuration constants
-MAX_HTML_CHARS = 80000  # ~5k tokens approx
+MAX_HTML_CHARS = 120000  # ~5k tokens approx
 MAX_CONCURRENT_REQUESTS = 5  # Semaphore limit for API calls
 DB_POOL_MIN_CONN = 1
 DB_POOL_MAX_CONN = 10
 
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-5.1-2025-11-13")
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-5.4-2026-03-05")
 REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "none")
 DOMAIN_PROCESS_LIMIT = int(os.getenv("DOMAIN_PROCESS_LIMIT", "1000"))
 
@@ -41,9 +41,13 @@ DOMAIN_ID_COLUMN = os.getenv("DOMAIN_ID_COLUMN", "sec_domain_id")
 MEDIA_TYPE_COLUMN = os.getenv("MEDIA_TYPE_COLUMN", "sec_domain_media_type_id")
 ENFORCEMENT_LABEL_COLUMN = os.getenv("ENFORCEMENT_LABEL_COLUMN", "sec_domain_piracy_class_v2_id")
 
-PIRACY_KEYWORDS_TABLE = os.getenv("PIRACY_KEYWORDS_TABLE", "ml_piracy_keywords")
-PIRACY_KEYWORDS_COLUMN = os.getenv("PIRACY_KEYWORDS_COLUMN", "keyword")
-PIRACY_KEYWORDS_BRAND_COLUMN = os.getenv("PIRACY_KEYWORDS_BRAND_COLUMN", "brand")
+SEARCH_KEYWORDS_TABLE = os.getenv("SEARCH_KEYWORDS_TABLE", os.getenv("PIRACY_KEYWORDS_TABLE", "search_keywords"))
+SEARCH_KEYWORDS_DEFAULT_COLUMN = "keyword" if os.getenv("PIRACY_KEYWORDS_TABLE") and not os.getenv(
+    "SEARCH_KEYWORDS_TABLE") else "search_keyword"
+SEARCH_KEYWORDS_COLUMN = os.getenv("SEARCH_KEYWORDS_COLUMN",
+                                   os.getenv("PIRACY_KEYWORDS_COLUMN", SEARCH_KEYWORDS_DEFAULT_COLUMN))
+SEARCH_KEYWORDS_BRAND_COLUMN = os.getenv("SEARCH_KEYWORDS_BRAND_COLUMN",
+                                         os.getenv("PIRACY_KEYWORDS_BRAND_COLUMN", "brand"))
 
 DOMAIN_SSL_TABLE = os.getenv("DOMAIN_SSL_TABLE", "domain_ssl_data")
 DOMAIN_SSL_REQUESTED_DOMAIN_COLUMN = os.getenv("DOMAIN_SSL_REQUESTED_DOMAIN_COLUMN", "requested_domain")
@@ -54,7 +58,7 @@ db_pool: pool.ThreadedConnectionPool | None = None
 
 
 class EnforcementResponse(BaseModel):
-    label_id: Literal[0, 1, 9, 12, 15, 16, 17, 18, 19]
+    label_id: Literal[0, 1, 13, 12, 15, 16, 17, 18, 19]
 
 
 ENFORCEMENT_CLASSIFICATION_PROMPT = '''You are a web domain enforcement classifier (second stage in a pipeline).
@@ -72,7 +76,7 @@ You MUST respond using the EnforcementResponse schema, setting the integer field
 
 0  = Exclude
 1  = Enforce
-9  = Content Host
+13  = Content Host
 12 = Illegal Pornography
 15 = Social Media
 16 = Stream Ripper
@@ -93,6 +97,7 @@ You will receive a user message with:
 - ssl_score: a numeric score where higher values indicate a more trustworthy / legitimate configuration, and lower values indicate more suspicious configuration. This score is only a weak hint: HTML evidence and the definitions below are more important.
 - privacy_policy_detected: a boolean crawler signal indicating the site likely has a Privacy Policy page (True/False)
 - terms_of_use_detected: a boolean crawler signal indicating the site likely has Terms/Terms of Use/Terms & Conditions (True/False)
+- blocked_snapshot_detected: a boolean crawler signal indicating the captured HTML appears to be a bot-check, CAPTCHA, Cloudflare challenge, access-denied, forbidden, DDoS-protection, or other blocked/interstitial snapshot (True/False)
 
 You must primarily rely on:
 1) The HTML content and site behavior.
@@ -100,6 +105,86 @@ You must primarily rely on:
 3) The piracy_brand_known flag (strong signal of piracy when True).
 Use ssl_score only as a secondary signal in ambiguous cases, never as the sole reason for an enforcement decision.
 Use privacy_policy_detected and terms_of_use_detected only as WEAK legitimacy hints: pirates can copy or fake these pages. Do NOT choose Exclude solely because these are True.
+Use blocked_snapshot_detected as an incomplete-evidence signal, NOT as a legitimacy signal. Cloudflare, CAPTCHA, access denied, forbidden, and DDoS-protection pages are common on pirate sites. Do NOT choose Exclude solely because blocked_snapshot_detected is True. If the domain has a known piracy brand, high-risk media type, or residual piracy evidence in the snapshot, still classify according to the piracy evidence.
+
+IMPORTANT: The HTML can be in ANY language (Spanish, Chinese, Korean, Japanese, Portuguese, Russian, Arabic, Turkish, etc.). Do NOT bias toward Exclude just because the site is not in English. Non-English pirate sites are extremely common (e.g. Spanish "ver online", Chinese 在线观看, Korean 보기, Japanese 無料視聴).
+
+-------------------------
+STRONG PIRACY SIGNALS (override generic legitimacy hints)
+-------------------------
+
+Treat ANY of the following as strong evidence of infringement. If one or more of these appear on a Film & TV / Anime / Manga / Sports / Adult / Games / Software / Music / Publishing site, DO NOT classify as Exclude just because the site looks polished, has a Privacy Policy, a footer with legal links, or social media icons.
+
+1) FAKE SAFE-HARBOR / "BUY THE ORIGINAL" DISCLAIMER in footer / legal copy, such as:
+   - "This site does not store any files on its servers"
+   - "We do not host any videos/files"
+   - "All content is provided by non-affiliated third parties"
+   - "Este sitio no almacena ningún video / ningún archivo en sus servidores"
+   - "Esse site não hospeda nenhum vídeo em seu servidor"
+   - "Todo o conteúdo é disponibilizado por terceiros não afiliados"
+   - "No alojamos ningún contenido, solo compartimos enlaces"
+   - "本站不存储任何视频" / "저희는 파일을 저장하지 않습니다" and equivalents.
+   - "This site does not store any files on our server, we only linked to the media which is hosted on 3rd party services" / "We only provide links / embeds to media hosted on other websites" / "All media is hosted by non-affiliated third parties" — the "we only link/embed" framing is the universal excuse of streaming aggregators.
+   - "All the comics on this website are only previews of the original comics" / "For the original version, please buy the comic" / "Please support the official release" / "Buy the original from the official publisher" — these "buy-the-original" disclaimers are the de-facto fingerprint of scanlation / manga-piracy aggregators.
+   - "漫画を無料で読む" (read manga for free) combined with no licensing — typical Japanese raw-manga piracy framing.
+   These disclaimers are the classic pirate attempt at safe harbor; when combined with direct episode/chapter listings, reader UIs, or large catalogs of copyrighted titles they are a RED FLAG for ENFORCE, not evidence of legitimacy.
+
+2) FILM & TV / ANIME STREAMING AGGREGATORS — TWO page types both qualify as ENFORCE:
+
+   2a) CATALOG / HOME / GENRE / COUNTRY / TOP-IMDb / UPDATES pages:
+   - Navigation mega-menu combining dozens of Genres + dozens of Countries + "Movies / TV-Series / Anime / Top IMDb / Updates / Trending / Latest". Official platforms (Netflix/Disney+/HBO/Crunchyroll/Prime Video) do NOT expose a filter-by-country-of-origin or a 35+ genre grid on their home page; this layout is a fingerprint of pirate aggregators.
+   - Grid of posters with titles of known copyrighted works (HBO/Netflix/Disney/Marvel/Warner originals, popular movies/series) each with "HD/HDRip/CAM/TS/WEB-DL/BluRay" badge and "watch free/online" phrasing.
+   - Franchises arranged by seasons/sagas/arcs/chapters/episodes with "Ver/Watch/Assistir/播放/보기/Смотреть онлайн" links and NO sign of being an official rights holder.
+
+   2b) INDIVIDUAL WATCH / PLAY pages (this alone is sufficient, no need to actually see a video playing):
+   - URL pattern /watch/<slug>, /film/<slug>, /movie/<slug>, /serie(s)/<slug>, /ver/<slug>, /episode/<slug>, /play/<slug>, /stream/<slug>.
+   - <title> or meta description containing: "Watch Online FREE", "Watch <title> online free", "<title> Full Movie Online", "free streaming", "no registration required", "download to watch offline", "assistir online grátis", "ver online gratis", "在线观看", "무료보기", "無料視聴".
+   - Player DOM signature: a player container (`#player`, `.player-main`, `.jw-player`, `.plyr`, iframe from unknown CDN like *.xyz / *.top / *.site / *.pro) together with a SERVER SELECTOR (`#movie-server`, `.server-list`, labels like "Server 1/2/3", "Vidstream/VidPlay/StreamSB/StreamWish/MixDrop/DoodStream/StreamTape/FileMoon/UpCloud") and an EPISODE LIST (`#movie-episodes`, `.eps-list`, `.seasons-list`).
+   - Control bar layout with "Focus / Light / Auto Play / Auto Next / Prev / Next / Bookmark / Report" buttons — this exact layout is a shared fingerprint of pirate streaming CMS clones (FMovies/9Anime/HiAnime/GoGoAnime/SFlix/AZMovies/ZoroX/2Embed/Aniwatch templates).
+   - "Report" modal with fixed checkboxes: "Video wrong", "Audio not synced", "Subtitle not synced", "Subtitle wrong", "Broken link", "Wrong episode" — the same template recycled across hundreds of pirate aggregators.
+   - Metadata side panel listing `Productions: <HBO / Netflix / Disney / Warner Bros / Amazon / Paramount / A24 / Sony / Universal>` on a domain that is clearly NOT one of those rights holders → ENFORCE (the site is borrowing legitimacy signals, not operating the service).
+   - "You may also like" / "Related" / "Similar" sliders filled with posters of other popular copyrighted titles from different rights holders — aggregator pattern, not an official single-franchise site.
+   - Cross-links in footer or body to OTHER known pirate aggregators (e.g. hianime, fmovies, sflix, aniwatch, gogoanime, 9anime, primewire, soap2day, bflix, lookmovie, yesmovies, putlocker and their numerous clones) with or without utm_source attribution.
+
+   Any of (2a) or (2b) → ENFORCE. A single WATCH page with the DOM signature in (2b) is sufficient evidence even without seeing the catalog.
+
+3) MANGA / MANHWA / MANHUA piracy sites — TWO distinct page types both qualify as ENFORCE:
+
+   3a) READER pages:
+   - Server selector ("Server 1", "Server 2"), chapter dropdown, Prev/Next navigation.
+   - Inline panels rendered on the page for free reading.
+   - Title headers like "<Title> - Chapter N" with a gallery of panels below, or "Chapter: N" + "Start Reading" CTA.
+
+   3b) CATALOG / INDEX / GENRE / RANKING pages (very common landing pages — DO NOT require seeing a reader UI):
+   - Grid of manga/manhwa/manhua cover thumbnails with title, latest chapter number (e.g. "# 95", "Chapter 148") and view counter ("448,302 万", view eye icon).
+   - "UP" / "NEW" / "HOT" badges on covers.
+   - Navigation with: ホーム/Home, トレンド/Trending, ランキング/Ranking, 人気/Popular, ジャンル/Genre, Ecchi, アクション, ファンタジー, コメディ, Manhwa, Manhwa Hot, Webtoons, Smut, Mature, Adult, SM/BDSM, Loli, etc.
+   - URL paths like /manga/<slug>/, /genre/<x>/, /ranking/, /trending/, /chapter-<n>/.
+   - Titles ending in "Raw", "Raw Free", "Free", "無料", "제로" — strong manga-piracy marker.
+   - WordPress theme "mangareader" / "madara" / "themesia mangareader" (visible in CSS/JS paths like /wp-content/themes/mangareader/) is the de facto pirate manga theme.
+
+   3c) KNOWN MANGA-PIRACY BRAND TOKENS (any of these in domain, <title>, meta description, JSON-LD or footer is a strong piracy signal):
+   manga1000, manga1001, mangaraw, mangaraw.ac, rawkuma, rawqq, klmanga, 13dl, mangakakalot, manganato, mangapark, mangahere, mangafox, kissmanga, mangabuddy, mangaowl, kingofshojo, asurascans (and clones), flamescans, reaperscans (clones), nitroscans, lhtranslation, niadd, 漫画 raw, 漫画タウン, 漫画bank, 漫画村.
+
+   Any of (3a), (3b), or (3c) → ENFORCE. The presence of catalog/index alone (3b) is sufficient evidence even WITHOUT seeing a reader UI in the snapshot.
+
+4) LIVE SPORTS LISTS with phrases like:
+   - "en Vivo", "Live Now", "直播", "Partidos de hoy", "Watch live" next to league names (LaLiga, Premier League, Champions, NBA, NFL, Copa de Francia, Eredivisie, etc.)
+   - Schedules of matches with direct stream/play links.
+   → IPTV Piracy (19) if IPTV branding, else ENFORCE (1). A legitimate news site only shows scores/results, not embedded live streams or "ver en vivo" links.
+
+5) INTRUSIVE MONETIZATION typical of piracy (combined with other piracy signals, this is confirmatory):
+   - Forced popup/modal on load with "Close" buttons that open third-party redirect URLs.
+   - Adult banner ads on a non-adult (e.g. anime, manga, sports) site.
+   - Multiple redirect / affiliate domains, "smart link" shorteners, traffic monetizer scripts.
+   - Sticky floating video players or iframes not related to the stated topic.
+
+6) OFFICIAL-LOOKING BRANDING is NOT by itself proof of legitimacy. Only trust it when:
+   - The domain matches or is clearly operated by a known rights holder / official licensee, AND
+   - There is no direct free access to full copyrighted episodes/chapters/matches.
+   Examples of genuinely legitimate platforms: Crunchyroll, Netflix, Disney+, MangaPlaza (NTT Solmare), Shueisha's MANGA Plus, ViX, DAZN, Paramount+, Apple TV+, Spotify, Steam, Epic Games, Amazon, Kindle, Google Books, Audible.
+
+If piracy_brand_known is True AND any of signals 1-5 are present → strongly prefer ENFORCE (or a more specific piracy label), never Exclude.
 
 -------------------------
 LABEL DEFINITIONS
@@ -109,7 +194,7 @@ You must choose ONE of the following labels (IDs):
 
 ID 0 - Exclude
 ID 1 - Enforce
-ID 9 - Content Host
+ID 13 - Content Host
 ID 12 - Illegal Pornography
 ID 15 - Social Media
 ID 16 - Stream Ripper
@@ -139,7 +224,15 @@ Per media type guidance (when not covered by more specific labels like IPTV Pira
 
 Film & TV / Anime / Manga:
 - ENFORCE if the site allows the user to WATCH or DOWNLOAD full movies, series, anime episodes, or similar content without license.
-- EXCLUDE (ID 0) if it only offers reviews, ratings, news, articles, or trailers with no full content and no clear pirate links.
+- Concrete ENFORCE patterns (any of these is sufficient):
+  * Navigation menus grouping a franchise by seasons/sagas/arcs/chapters with episode-level pages (e.g. "Dragon Ball Z > Saga Saiyajin > Capítulo N", "Naruto Shippuden > Capítulo N").
+  * Title "Ver <franchise> online" / "Watch <title> online free" / "<title> 在线观看" / "<title> 무료보기" in <title> or <h1>.
+  * Post/article pages that are thin wrappers around an embedded video player or external streaming iframe for a full episode / full movie.
+  * Manga / manhwa / manhua reader UI: chapter/episode dropdown + "Server 1/Server 2" + Prev/Next + inline image panels. This alone is ENFORCE even if the landing page looks like a blog.
+  * A footer "safe harbor" disclaimer claiming the site does not host files, combined with clear streaming/download UX (see STRONG PIRACY SIGNALS #1). Do NOT treat the disclaimer as legitimacy.
+  * Catalog/home pages that display rows of popular anime/manga/movie covers with titles of known copyrighted works, and clicking them leads to free full playback/reading. WordPress or custom themes branded as "<name>.com – watch/read online" are a very common pattern.
+- EXCLUDE (ID 0) ONLY if the site is clearly a review/news/wiki/trailer site with NO full episodes, NO full chapters, NO live streams, and NO direct download links — typical examples: MyAnimeList, IMDb, Rotten Tomatoes, AniList, Letterboxd, Wikipedia articles, Fandom wikis, official publisher blogs.
+- Do NOT mark as Exclude based on the mere presence of Privacy Policy, Terms, Facebook/Twitter icons, comment widgets, or a "DMCA" link in the footer — pirate streaming sites routinely include all of these.
 
 Games:
 - ENFORCE if the site offers pirated game downloads or hacks/cheats that give unfair advantages (aimbots, cracks, keygens, loaders, etc.).
@@ -159,7 +252,12 @@ Music:
 
 Sports:
 - ENFORCE if the site illegally streams live sports matches or premium sports content without license.
-- EXCLUDE (ID 0) if it is only sports news, scores, or commentary without infringing streams.
+- Concrete ENFORCE patterns:
+  * Schedule/table of today's matches ("Partidos de hoy", "Hoy TV", "Live Matches", "直播") with team-vs-team links labeled "en Vivo" / "Live" / "Watch".
+  * Brands or clones like rojadirecta, pirlotv, futbollibre, libertv, 6stream, buffstreams, crackstreams, etc. — typical free streaming of LaLiga, Premier League, Champions, NBA, NFL, UFC, F1.
+  * Embedded players or iframes pointing to unknown CDNs for premium leagues without a licensing logo (DAZN, ESPN, Sky, beIN, etc.) being the operator.
+- If the site sells/advertises IPTV subscriptions, M3U lists, channel bouquets, "10k channels", TV box panels → IPTV Piracy (ID 19).
+- EXCLUDE (ID 0) if it is only sports news, scores, commentary, fantasy, statistics, or transfer rumors with no embedded live streams and no "watch live" links.
 
 Adult:
 - ENFORCE if it is an adult content site that primarily publishes infringing commercial content (but not involving minors or animals).
@@ -169,7 +267,7 @@ News:
 - News media type should generally be EXCLUDE (ID 0). Only mark ENFORCE if the site is clearly using “news” as a façade but the main value is direct infringing content (HTML must show this clearly).
 
 Content Host media type:
-- If it is a generic file hosting/search platform, and it acts as a passive tech platform with takedown processes and no obvious search/indexing of infringing content, use Content Host (ID 9) or Exclude (ID 0).
+- If it is a generic file hosting/search platform, and it acts as a passive tech platform with takedown processes and no obvious search/indexing of infringing content, use Content Host (ID 13) or Exclude (ID 0).
 - If it clearly promotes and exposes infringing content prominently, use ENFORCE (ID 1), or a more specific label like Stream Ripper / Piracy Apps / IPTV Piracy, if applicable.
 
 Gambling:
@@ -292,9 +390,9 @@ Even if some users may upload infringing content, large social platforms with mo
 Do NOT use Social Media (ID 15) for small pirate streaming sites that just have comments; those should be ENFORCE (ID 1) or other piracy labels.
 
 
-### ID 9 - Content Host
+### ID 13 - Content Host
 
-Use ID 9 when the site is primarily a CONTENT HOST or storage provider:
+Use ID 13 when the site is primarily a CONTENT HOST or storage provider:
 
 - Offers file storage or streaming as a service.
 - May require login or account.
@@ -320,14 +418,21 @@ When deciding, follow this priority order:
 4) Else, if it is clearly a PIRACY APP distribution site -> label_id = 17.
 5) Else, if it is clearly a mainstream SOCIAL MEDIA / UGC platform -> label_id = 15.
 6) Else, if it is a pure FORUM meeting the "Forum Only" criteria (private/uncertain, non-piracy purpose) -> label_id = 18.
-7) Else, if it is a CONTENT HOST/storage service -> label_id = 9 (unless obviously promoting piracy → then ENFORCE).
+7) Else, if it is a CONTENT HOST/storage service -> label_id = 13 (unless obviously promoting piracy → then ENFORCE).
 8) Else, decide between ENFORCE (ID 1) and EXCLUDE (ID 0) based on:
    - Presence of clearly infringing commercial content vs. only reviews/news.
    - Media type (Film & TV, Anime, Games, Software, Publishing, Music, Sports, Adult, etc.).
    - Piracy brand indicator: if piracy_brand_known is True, strongly favor ENFORCE or a specific piracy label.
    - SSL score: low scores slightly increase suspicion; high scores slightly favor Exclude, but HTML and behavior are more important.
 
-If evidence is genuinely unclear and the site does not clearly fit any specific piracy pattern, and there is no obvious infringing content, use Exclude (ID 0).
+Default bias for HIGH-RISK media types:
+- When media_type is Film & TV, Anime, Manga, Sports, or Adult, and the HTML shows ANY of the STRONG PIRACY SIGNALS (fake safe-harbor disclaimer, episode/chapter/saga catalogs of known franchises, manga reader UI, live-match lists, intrusive redirect monetization), the correct answer is ENFORCE (or a specific piracy label), even if the site also has Privacy Policy, Terms, social media icons, a DMCA link, or a polished UI.
+- Do NOT require an explicit "Download" button or a visible video player in the snapshot. Navigation structure, titles, headings and catalog listings are sufficient evidence.
+
+Default bias for LOW-RISK media types:
+- When media_type is News, Online Courses, Other, or when the site is clearly an official rights-holder / licensee / storefront (Netflix, Disney+, Crunchyroll, MangaPlaza, Steam, Apple TV+, DAZN, Spotify, Amazon, etc.), prefer Exclude unless there is clear infringing functionality.
+
+If evidence is genuinely unclear AND media_type is not in the high-risk set AND none of the strong piracy signals are present, use Exclude (ID 0).
 
 
 -------------------------
@@ -335,7 +440,7 @@ OUTPUT REQUIREMENTS
 -------------------------
 
 You MUST respond using the EnforcementResponse schema, with:
-- label_id: ONE of {0, 1, 9, 12, 15, 16, 17, 18, 19}
+- label_id: ONE of {0, 1, 13, 12, 15, 16, 17, 18, 19}
 
 Do NOT include explanations, text, or additional fields. Only set `label_id`.
 '''
@@ -512,22 +617,33 @@ def should_fast_exclude(prepared_text: str, raw_html: str) -> bool:
         r"afternic",
     ]
 
+    for pat in parking_patterns:
+        if re.search(pat, hay) or re.search(pat, raw):
+            return True
+
+    return False
+
+
+def detect_blocked_snapshot(prepared_text: str | None, raw_html: str | None) -> bool:
+    hay = (prepared_text or "").lower()
+    raw_full = (raw_html or "")
+    raw = raw_full[:200000].lower()
+
     blocked_patterns = [
         r"captcha",
         r"verify\s+you\s+are\s+human",
         r"attention\s+required",
+        r"checking\s+your\s+browser",
         r"cloudflare",
+        r"cf-challenge",
         r"ddos\s+protection",
         r"access\s+denied",
         r"forbidden",
         r"error\s*403",
         r"temporarily\s+unavailable",
         r"unusual\s+traffic",
+        r"ray\s+id",
     ]
-
-    for pat in parking_patterns:
-        if re.search(pat, hay) or re.search(pat, raw):
-            return True
 
     for pat in blocked_patterns:
         if re.search(pat, hay) or re.search(pat, raw):
@@ -553,13 +669,14 @@ def load_piracy_brand_keywords() -> list[str]:
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        table = safe_identifier(PIRACY_KEYWORDS_TABLE)
-        kw_col = safe_identifier(PIRACY_KEYWORDS_COLUMN)
-        brand_col = safe_identifier(PIRACY_KEYWORDS_BRAND_COLUMN)
+        table = safe_identifier(SEARCH_KEYWORDS_TABLE)
+        kw_col = safe_identifier(SEARCH_KEYWORDS_COLUMN)
+        brand_col = safe_identifier(SEARCH_KEYWORDS_BRAND_COLUMN)
         sql_string = f"""
             SELECT {kw_col}
             FROM {table}
             WHERE {brand_col} = true
+              AND LENGTH({kw_col}) >= 6
         """
         cursor.execute(sql_string)
         rows = cursor.fetchall()
@@ -671,7 +788,9 @@ MEDIA_TYPE_ID_TO_NAME: dict[int, str] = {
     10: "News",
     13: "Content Host",
     7: "Software",
+    11: "General",
     12: "Other",
+    16: "Publishing",
     17: "invalid",
 }
 
@@ -718,8 +837,8 @@ def release_db_connection(conn):
 
 def get_all_domain_secondary_domains() -> list[int]:
     """
-    Get all domain_id from domain_attributes table.
-    Returns list of domain IDs to process.
+    Get all sec_domain_id values from the secondary_domains table.
+    Returns a list of secondary domain IDs to process.
     """
     conn = None
     cursor = None
@@ -790,7 +909,7 @@ def get_html_signals(sec_domain_id: int) -> tuple[str | None, bool, bool]:
             terms_of_use_detected = bool(result[2]) if result[2] is not None else False
 
     except Exception as e:
-        logger.error(f"Error getting HTML signals for disc_domain_id {sec_domain_id}: {e}")
+        logger.error(f"Error getting HTML signals for sec_domain_id {sec_domain_id}: {e}")
     finally:
         if cursor:
             cursor.close()
@@ -902,7 +1021,7 @@ def get_domain_metadata(
 
 def update_enforcement_label(domain_id: int, label_id: int) -> bool:
     """
-    Update enforcement label in domain_attributes for a specific domain_id.
+    Update enforcement label in secondary_domains for a specific sec_domain_id.
     Returns True if successful, False otherwise.
     """
     conn = None
@@ -955,6 +1074,7 @@ async def classify_enforcement(
         ssl_score: float,
         privacy_policy_detected: bool,
         terms_of_use_detected: bool,
+        blocked_snapshot_detected: bool,
         domain_id: int
 ) -> int:
     """
@@ -986,7 +1106,8 @@ async def classify_enforcement(
             f"piracy_brand_known: {piracy_brand_known}\n"
             f"ssl_score: {ssl_score}\n"
             f"privacy_policy_detected: {privacy_policy_detected}\n"
-            f"terms_of_use_detected: {terms_of_use_detected}\n\n"
+            f"terms_of_use_detected: {terms_of_use_detected}\n"
+            f"blocked_snapshot_detected: {blocked_snapshot_detected}\n\n"
             "Below is extracted and cleaned page text from the snapshot (possibly truncated):\n\n"
             "```text\n"
             f"{prepared}\n"
@@ -1047,7 +1168,7 @@ async def classify_enforcement(
 
         label_id = int(result.label_id)
 
-        if label_id in {0, 1, 9, 12, 15, 16, 17, 18, 19}:
+        if label_id in {0, 1, 13, 12, 15, 16, 17, 18, 19}:
             logger.info(
                 f"domain_id {domain_id} classified as label_id: {label_id}"
             )
@@ -1081,7 +1202,7 @@ async def process_domain(
 ) -> tuple[int, str]:
     """
     Process a single domain: get inputs, classify enforcement, and update DB.
-    Returns tuple (disc_domain_id, status) where status is 'processed', 'skipped', or 'error'.
+    Returns tuple (sec_domain_id, status) where status is 'processed', 'skipped', or 'error'.
     """
     async with semaphore:
         try:
@@ -1121,6 +1242,12 @@ async def process_domain(
                 update_enforcement_label(domain_id, 0)
                 return (domain_id, 'processed')
 
+            blocked_snapshot_detected = detect_blocked_snapshot(prepared_text, html_content)
+            if blocked_snapshot_detected:
+                logger.info(
+                    f"Blocked/interstitial snapshot detected for domain_id {domain_id}; sending to LLM for evaluation"
+                )
+
             # Step 2: Classify with OpenAI
             label_id = await classify_enforcement(
                 client=client,
@@ -1131,6 +1258,7 @@ async def process_domain(
                 ssl_score=ssl_score,
                 privacy_policy_detected=privacy_policy_detected,
                 terms_of_use_detected=terms_of_use_detected,
+                blocked_snapshot_detected=blocked_snapshot_detected,
                 domain_id=domain_id,
             )
 
