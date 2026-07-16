@@ -57,6 +57,7 @@ class site_map :
             sd.site_map_count is null 
             and sd.online_status = 'Online'
             and sd.redirect_domain = False
+            AND sd.added > '2026-07-01
             ; """
             list_all_domains = []
             try:

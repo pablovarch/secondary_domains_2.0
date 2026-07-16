@@ -450,7 +450,10 @@ def get_all_discovery_domains() -> list[int]:
         sql_string = """
             SELECT sec_domain_id
             FROM secondary_domains
-            WHERE sec_domain_media_type_id IS NULL
+            WHERE (
+                sec_domain_media_type_id IS NULL
+                OR sec_domain_media_type_id = 0
+            )
               AND online_status = 'Online'
               AND ml_sec_domain_classification IS NULL
             ORDER BY sec_domain_id DESC

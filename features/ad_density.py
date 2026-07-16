@@ -29,6 +29,7 @@ class ad_density:
             online_status = 'Online' 
             and sd.ad_density is null 
             and sd.redirect_domain = False
+            AND sd.added > '2026-07-01'
             """, dbConnection)
         dbConnection.close()
         data = sec_domain[["sec_domain_id", "ad_count", "html_length"]].query("~html_length.isna()")

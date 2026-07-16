@@ -23,17 +23,19 @@ import mfa_no_ads
 from piracy_class import openai_media_type_sec_domain
 from piracy_class import ssl_analyzer_sec_domain
 from piracy_class import sec_dom_piracy_classifier_v2
+import Confidence_Script
 import asyncio
+import ad_chain_features_updater
 
 
 if __name__ == '__main__':
-    addres_bar_class.Address_bar_class().main()
-    rude_rules.Betting_piracy().main()
-    google_search_results.Google_Search_results().main()
-    secondary_domains_crawler.secondary_domains_crawler().crawl()
+    # addres_bar_class.Address_bar_class().main()
+    # rude_rules.Betting_piracy().main()
+    # google_search_results.Google_Search_results().main()
+    # secondary_domains_crawler.secondary_domains_crawler().crawl()
     # jarm_rules.Jarm_processing().main()
-    sw_offline_class2.Sw_offline_class().main()
-    mfa_no_ads.main()
+    # sw_offline_class2.Sw_offline_class().main()
+    # mfa_no_ads.main()
     # block_class.Block_class().main()
     # asyncio.run(openai_media_type_sec_domain.main())
     # asyncio.run(ssl_analyzer_sec_domain.run_backfill())
@@ -47,8 +49,10 @@ if __name__ == '__main__':
     # ad_density.ad_density().main()
     # is_high_risk_geo.is_high_risk_geo().main()
     # for_no_redirect_domains.For_no_redirect_domains().main()
-    asyncio.run(sec_dom_software_classifier.main())
-    final_update_Script.main()
+    # asyncio.run(sec_dom_software_classifier.main())
+    ad_chain_features_updater.main()
+    # final_update_Script.main()
+    Confidence_Script.ConfidenceScript().main()
 
 
 

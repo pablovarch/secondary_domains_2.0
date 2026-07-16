@@ -58,7 +58,7 @@ db_pool: pool.ThreadedConnectionPool | None = None
 
 
 class EnforcementResponse(BaseModel):
-    label_id: Literal[0, 1, 13, 12, 15, 16, 17, 18, 19]
+    label_id: Literal[0, 1, 13, 12, 15, 16, 17, 18, 19, 22]
 
 
 ENFORCEMENT_CLASSIFICATION_PROMPT = '''You are a web domain enforcement classifier (second stage in a pipeline).
@@ -83,6 +83,7 @@ You MUST respond using the EnforcementResponse schema, setting the integer field
 17 = Piracy Apps
 18 = Forum Only
 19 = IPTV Piracy
+22 = App Stores
 
 No other IDs are allowed. Do NOT include explanations or extra fields. Only set `label_id` correctly.
 
@@ -201,6 +202,7 @@ ID 16 - Stream Ripper
 ID 17 - Piracy Apps
 ID 18 - Forum Only
 ID 19 - IPTV Piracy
+ID 22 - App Stores
 
 Below are detailed definitions and rules.
 
@@ -269,6 +271,7 @@ News:
 Content Host media type:
 - If it is a generic file hosting/search platform, and it acts as a passive tech platform with takedown processes and no obvious search/indexing of infringing content, use Content Host (ID 13) or Exclude (ID 0).
 - If it clearly promotes and exposes infringing content prominently, use ENFORCE (ID 1), or a more specific label like Stream Ripper / Piracy Apps / IPTV Piracy, if applicable.
+- If the site is organized as an app/game marketplace or APK/app catalog with app cards, platform tabs, categories, ratings, versions, and download/install flows, use App Stores (ID 22), not Content Host.
 
 Gambling:
 - Gambling and betting sites are normally EXCLUDE (ID 0) unless they are clearly used as fronts for piracy (rare).
@@ -327,6 +330,26 @@ AND
 - The forum is not a side feature next to clearly infringing content.
 
 If a forum openly promotes illegal downloads or infringing content, it is ENFORCE (ID 1), NOT Forum Only.
+
+
+### ID 22 - App Stores
+
+Use ID 22 when the site is primarily an APP STORE, APK repository, software marketplace, or app/game catalog:
+
+- It lists many apps or games from multiple publishers/developers.
+- It has store-like navigation such as Apps, Games, Categories, Android, APK, Windows, Mac, Top Downloads, Editor's Choice, App Store, or Games Store.
+- It shows app/game cards or detail pages with icons, names, publisher/developer, rating, version, size, platform, changelog, screenshots, and download/install buttons.
+- It organizes downloadable apps/games by categories such as Action, Arcade, Racing, Puzzle, Business Software, Travel, Photo Editors, Audio Editors, Utilities, or similar.
+- Examples of this pattern include APKPure-like, Uptodown-like, Download.it-like, and APK/game catalog sites.
+
+Use App Stores (ID 22) even if many listed items are games, because the site's role is a multi-app marketplace/catalog rather than one game or one publisher site.
+
+Do NOT use App Stores for:
+- A single official app landing page or official product site; use Exclude (ID 0) unless there is clear piracy.
+- A site whose main purpose is distributing dedicated piracy apps for movies, series, IPTV, or illegal media access; use Piracy Apps (ID 17).
+- Stream-ripping tools or downloaders targeting YouTube, Spotify, TikTok, or similar protected services; use Stream Ripper (ID 16).
+- Sites focused on cracked commercial desktop software, serials, keygens, loaders, or game cracks; use Enforce (ID 1).
+- Generic file hosting/storage pages without app-store structure; use Content Host (ID 13) when appropriate.
 
 
 ### ID 19 - IPTV Piracy
@@ -418,8 +441,9 @@ When deciding, follow this priority order:
 4) Else, if it is clearly a PIRACY APP distribution site -> label_id = 17.
 5) Else, if it is clearly a mainstream SOCIAL MEDIA / UGC platform -> label_id = 15.
 6) Else, if it is a pure FORUM meeting the "Forum Only" criteria (private/uncertain, non-piracy purpose) -> label_id = 18.
-7) Else, if it is a CONTENT HOST/storage service -> label_id = 13 (unless obviously promoting piracy → then ENFORCE).
-8) Else, decide between ENFORCE (ID 1) and EXCLUDE (ID 0) based on:
+7) Else, if it is an APP STORE, APK repository, software marketplace, or app/game catalog -> label_id = 22, unless it is specifically a piracy-app site, stream ripper, IPTV piracy service, or cracked-software/game-crack site.
+8) Else, if it is a CONTENT HOST/storage service -> label_id = 13 (unless obviously promoting piracy → then ENFORCE).
+9) Else, decide between ENFORCE (ID 1) and EXCLUDE (ID 0) based on:
    - Presence of clearly infringing commercial content vs. only reviews/news.
    - Media type (Film & TV, Anime, Games, Software, Publishing, Music, Sports, Adult, etc.).
    - Piracy brand indicator: if piracy_brand_known is True, strongly favor ENFORCE or a specific piracy label.
@@ -431,6 +455,7 @@ Default bias for HIGH-RISK media types:
 
 Default bias for LOW-RISK media types:
 - When media_type is News, Online Courses, Other, or when the site is clearly an official rights-holder / licensee / storefront (Netflix, Disney+, Crunchyroll, MangaPlaza, Steam, Apple TV+, DAZN, Spotify, Amazon, etc.), prefer Exclude unless there is clear infringing functionality.
+- When the site is a general app/game catalog or APK repository and does not match a more specific piracy label, use App Stores (ID 22) instead of Exclude, Software, Games, or Content Host.
 
 If evidence is genuinely unclear AND media_type is not in the high-risk set AND none of the strong piracy signals are present, use Exclude (ID 0).
 
@@ -440,7 +465,7 @@ OUTPUT REQUIREMENTS
 -------------------------
 
 You MUST respond using the EnforcementResponse schema, with:
-- label_id: ONE of {0, 1, 13, 12, 15, 16, 17, 18, 19}
+- label_id: ONE of {0, 1, 13, 12, 15, 16, 17, 18, 19, 22}
 
 Do NOT include explanations, text, or additional fields. Only set `label_id`.
 '''
@@ -857,6 +882,8 @@ def get_all_domain_secondary_domains() -> list[int]:
             SELECT sd.sec_domain_id 
             FROM secondary_domains sd
             where sd.sec_domain_media_type_id  IS NOT null
+            and sd.sec_domain_media_type_id <> 0
+            and sd.sec_domain_media_type_id <> 17
             and sd.sec_domain_piracy_class_v2_id is null
             and sd.online_status = 'Online'
         """
@@ -1168,7 +1195,7 @@ async def classify_enforcement(
 
         label_id = int(result.label_id)
 
-        if label_id in {0, 1, 13, 12, 15, 16, 17, 18, 19}:
+        if label_id in {0, 1, 13, 12, 15, 16, 17, 18, 19, 22}:
             logger.info(
                 f"domain_id {domain_id} classified as label_id: {label_id}"
             )
@@ -1214,6 +1241,18 @@ async def process_domain(
             if media_type_id is None:
                 logger.warning(
                     f"No media_type_id found for domain_id {domain_id}, skipping"
+                )
+                return (domain_id, 'skipped')
+
+            if int(media_type_id) == 0:
+                logger.info(
+                    f"domain_id {domain_id} has media_type_id 0 (unclassified), skipping enforcement classification"
+                )
+                return (domain_id, 'skipped')
+
+            if int(media_type_id) == 17:
+                logger.info(
+                    f"domain_id {domain_id} has media_type_id 17 (invalid), skipping enforcement classification"
                 )
                 return (domain_id, 'skipped')
 
