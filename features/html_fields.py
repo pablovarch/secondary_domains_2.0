@@ -153,7 +153,7 @@ class html_fields:
                 AND sd.online_status = 'Online'
                 AND sd.redirect_domain = false
                 AND sd.exc_domain_id IS NULL
-                AND sd.added > '2025-01-01'
+                AND sd.added > '2026-07-01'
                 AND sd.ml_sec_domain_classification IS NULL;
         """
         list_all_domains = []

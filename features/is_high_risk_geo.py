@@ -49,6 +49,7 @@ class is_high_risk_geo :
             where sd.is_high_risk_geo is null 
             and sd.online_status = 'Online'
             and sd.redirect_domain = False 
+            AND sd.added > '2026-07-01
              """
             list_all_domains = []
             try:
