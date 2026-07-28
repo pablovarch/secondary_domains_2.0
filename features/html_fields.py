@@ -103,9 +103,17 @@ class html_fields:
                 self.__logger.info(f'------get html from site {dom}')
                 html = self.get_html(sec_domain_id)
                 if html:
+                    ad_count = self.count_ad_slots_from_html(html)
+
+                    if dom['ad_count_only']:
+                        self.__logger.info(
+                            f'updating ad_count for classified domain {sec_domain_id}: {ad_count}'
+                        )
+                        self.update_secondary_domain_ad_count(sec_domain_id, ad_count)
+                        continue
+
                     result_detect_ecommerce_signals  = self.detect_ecommerce_signals(html)
                     result_detect_affiliate_handoffs = self.detect_affiliate_handoffs(html)
-                    ad_count = self.count_ad_slots_from_html(html)
 
                     mfa_features = self.extract_mfa_features(html)
                     mfa_score    = self.compute_mfa_score(mfa_features)
@@ -145,16 +153,30 @@ class html_fields:
 
     def get_all_secondary_domains(self):
         sql_string = """
-            SELECT DISTINCT sd.sec_domain_id, sd.sec_domain
+            SELECT DISTINCT
+                sd.sec_domain_id,
+                sd.sec_domain,
+                (
+                    sd.ml_sec_domain_classification = 3
+                    AND sd.ad_count IS NULL
+                ) AS ad_count_only
             FROM secondary_domains sd
             INNER JOIN secondary_domains_html sdh ON sd.sec_domain_id = sdh.sec_domain_id
             WHERE
-                sd.graymarket_label IS NULL
-                AND sd.online_status = 'Online'
+                sd.online_status = 'Online'
                 AND sd.redirect_domain = false
                 AND sd.exc_domain_id IS NULL
-                AND sd.added > '2026-07-01'
-                AND sd.ml_sec_domain_classification IS NULL;
+                AND (
+                    (
+                        sd.graymarket_label IS NULL
+                        AND sd.added > '2026-07-01'
+                        AND sd.ml_sec_domain_classification IS NULL
+                    )
+                    OR (
+                        sd.ml_sec_domain_classification = 3
+                        AND sd.ad_count IS NULL
+                    )
+                );
         """
         list_all_domains = []
         conn = None
@@ -170,6 +192,7 @@ class html_fields:
                     list_all_domains.append({
                         'sec_domain_id': elem[0],
                         'sec_domain':    elem[1],
+                        'ad_count_only': elem[2],
                     })
         except Exception as e:
             self.__logger.error(f':::: Error found trying to get_all_secondary_domains: {e}')
@@ -179,7 +202,13 @@ class html_fields:
         return list_all_domains
 
     def get_html(self, sec_domain_id):
-        sql_string = """SELECT sdh.html_content FROM secondary_domains_html sdh WHERE sdh.sec_domain_id = %s"""
+        sql_string = """
+            SELECT sdh.html_content
+            FROM secondary_domains_html sdh
+            WHERE sdh.sec_domain_id = %s
+            ORDER BY sdh.sec_domain_html_id DESC
+            LIMIT 1
+        """
         html   = None
         conn   = None
         cursor = None
@@ -197,6 +226,36 @@ class html_fields:
             if cursor: cursor.close()
             if conn:   conn.close()
         return html
+
+    def update_secondary_domain_ad_count(self, sec_domain_id, ad_count):
+        """
+        Actualiza únicamente ad_count para dominios que siguen en clase 3
+        y cuyo conteo todavía no fue calculado.
+        """
+        sql_string = """
+            UPDATE public.secondary_domains
+            SET ad_count = %s
+            WHERE sec_domain_id = %s
+              AND ml_sec_domain_classification = 3
+              AND ad_count IS NULL
+        """
+        data = (ad_count, sec_domain_id)
+        conn = None
+        cursor = None
+        try:
+            conn = self._db_connect()
+            cursor = conn.cursor()
+            cursor.execute(sql_string, data)
+            conn.commit()
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            self.__logger.error(
+                f'::Saver:: Error updating ad_count on secondary domain id {sec_domain_id} - {e}'
+            )
+        finally:
+            if cursor: cursor.close()
+            if conn:   conn.close()
 
     def update_secondary_domain(self, sec_domain_id, ad_count, has_affiliate_handoff, is_ecommerce, graymarket_label):
         sql_string = """

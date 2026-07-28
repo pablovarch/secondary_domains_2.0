@@ -42,7 +42,7 @@ class Jarm_processing:
             lambda classification: 'LOW' if classification == 2 else None
         )
         sec_domain['recommended_action_id'] = sec_domain['ml_sec_domain_classification'].apply(
-            lambda classification: 6 if classification == 2 else None
+            lambda classification: 3 if classification == 2 else None
         )
         sec_domain['justification'] = sec_domain['ml_sec_domain_classification'].apply(
             lambda classification: 6 if classification == 2 else None
