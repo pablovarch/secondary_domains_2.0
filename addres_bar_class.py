@@ -66,8 +66,17 @@ class Address_bar_class:
         filtered_list = pd.merge(sec_domains, address_bar_filtered, left_on='sec_domain', right_on="address_bar_domain", how='inner')
 
         filtered_list["ml_sec_domain_classification"] = 2
-        # Add the mfa_engagement column based on the conditions
-        df_filtered = filtered_list[['sec_domain_id', 'ml_sec_domain_classification']]
+        filtered_list["confidence"] = 'MEDIUM'
+        filtered_list["recommended_action_id"] = 2
+
+        df_filtered = filtered_list[
+            [
+                'sec_domain_id',
+                'ml_sec_domain_classification',
+                'confidence',
+                'recommended_action_id'
+            ]
+        ].copy()
         df_filtered['decision_source'] = 'Ad_sniffer'
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
@@ -92,23 +101,37 @@ class Address_bar_class:
 
             # Preparamos los valores (tuplas de domain_id y valor nuevo)
             data_to_update = [
-                (domain['sec_domain_id'], domain['ml_sec_domain_classification'], domain['decision_source']) for domain
-                in save_data
+                (
+                    domain['sec_domain_id'],
+                    domain['ml_sec_domain_classification'],
+                    domain['decision_source'],
+                    domain['confidence'],
+                    domain['recommended_action_id']
+                )
+                for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
-            values_template = ",".join(["(%s, %s, %s)"] * len(data_to_update))
+            values_template = ",".join(["(%s, %s, %s, %s, %s)"] * len(data_to_update))
             flat_values = []
             for tup in data_to_update:
                 flat_values.extend(tup)  # aplanamos la lista para pasar a execute
 
             sql = f"""
-                WITH updates (sec_domain_id, ml_sec_domain_classification, decision_source) AS (
+                WITH updates (
+                    sec_domain_id,
+                    ml_sec_domain_classification,
+                    decision_source,
+                    confidence,
+                    recommended_action_id
+                ) AS (
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
                 SET ml_sec_domain_classification = u.ml_sec_domain_classification,
-                decision_source = u.decision_source
+                    decision_source = u.decision_source,
+                    confidence = u.confidence,
+                    recommended_action_id = u.recommended_action_id
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """

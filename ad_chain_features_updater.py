@@ -188,7 +188,11 @@ def clear_secondary_domain_classification(sec_domain_ids: Sequence[int]) -> int:
 
         sql_string = f"""
             UPDATE {table}
-            SET {class_col} = NULL
+            SET {class_col} = NULL,
+                confidence = NULL,
+                recommended_action_id = NULL,
+                justification = NULL,
+                exploit_type = NULL
             WHERE {sec_domain_id_col} = ANY(%s)
               AND {publication_status_col} = %s
               AND {class_col} = %s

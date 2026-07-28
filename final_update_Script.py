@@ -58,9 +58,13 @@ def update_secondary_last_mfa_no_ads():
     query = """
         UPDATE secondary_domains sd
         SET ml_sec_domain_classification = 9,
-        decision_source = 'sql script'
+        decision_source = 'sql script',
+        confidence = NULL,
+        recommended_action_id = NULL,
+        justification = NULL,
+        exploit_type = NULL
         WHERE 
-          (sd.ad_count = 0 or sd.ad_count is null)
+          sd.ad_count = 0
           AND ml_sec_domain_classification = 3
     """
 
@@ -70,7 +74,7 @@ def update_secondary_last_mfa_no_ads():
                 cursor.execute(query)
                 filas_actualizadas = cursor.rowcount
 
-        logging.info("Filas actualizadas (publishing_sites): %s", filas_actualizadas)
+        logging.info("Filas actualizadas (mfa_no_ads): %s", filas_actualizadas)
         return filas_actualizadas
 
     except Exception as e:
