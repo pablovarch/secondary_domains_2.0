@@ -140,17 +140,18 @@ def find_sec_domain_ids_with_invalid_ad_features(sec_domain_ids: Sequence[int]) 
         ad_creative_col = safe_identifier(AD_CREATIVE_COLUMN)
 
         sql_string = f"""
-            SELECT DISTINCT sd.{sec_domain_id_col}
+            SELECT sd.{sec_domain_id_col}
             FROM {secondary_domains_table} sd
             INNER JOIN {ad_chain_urls_table} acu
                 ON sd.{domain_id_col} = acu.{domain_id_col}
             INNER JOIN {ad_url_features_table} auf
                 ON acu.{ad_url_col} = auf.{ad_url_col}
             WHERE sd.{sec_domain_id_col} = ANY(%s)
-              AND (
-                    COALESCE(auf.{ad_rendering_col}, FALSE) = FALSE
-                 OR COALESCE(auf.{ad_creative_col}, FALSE) = FALSE
-              )
+            GROUP BY sd.{sec_domain_id_col}
+            HAVING NOT BOOL_OR(
+                COALESCE(auf.{ad_rendering_col}, FALSE)
+                AND COALESCE(auf.{ad_creative_col}, FALSE)
+            )
             ORDER BY sd.{sec_domain_id_col} ASC
         """
 
@@ -283,3 +284,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

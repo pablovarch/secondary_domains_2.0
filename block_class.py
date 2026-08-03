@@ -26,8 +26,10 @@ class Block_class:
             and online_status is not null and sd.online_status !='Online' and sd.online_status !='Online-Bulk-check'""",
                                      conn)
 
+        sec_domain['has_redirect'] = sec_domain['redirect_domain'].fillna(False).astype(bool)
+
         def proccess_domains(row):
-            if row["redirect_domain"]:
+            if row["has_redirect"]:
                 return 2
             else:
                 if row["google_search_results"] <= 2:
@@ -40,8 +42,11 @@ class Block_class:
         sec_domain['ml_sec_domain_classification'] = sec_domain.apply(proccess_domains, axis=1)
         sec_domain = sec_domain.dropna(subset=['ml_sec_domain_classification'])
 
-        df_filtered = sec_domain[['sec_domain_id', 'ml_sec_domain_classification']]
+        df_filtered = sec_domain[
+            ['sec_domain_id', 'ml_sec_domain_classification', 'has_redirect']
+        ].copy()
         df_filtered['decision_source'] = 'Offline Class'
+        df_filtered.drop(columns=['has_redirect'], inplace=True)
         data_to_save = df_filtered.to_dict('records')
 
         if not data_to_save:
