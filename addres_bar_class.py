@@ -147,3 +147,4 @@ class Address_bar_class:
             cursor.close()
             conn.close()
             print('DB connection closed')
+

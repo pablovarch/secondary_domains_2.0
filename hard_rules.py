@@ -10,11 +10,11 @@ from sqlalchemy import create_engine, text
 
 class Betting_piracy:
     def __init__(self):
-        self.__logger = log.Log().get_logger(name='rude_rules.log')
+        self.__logger = log.Log().get_logger(name='hard_rules.log')
 
     def main(self):
 
-        self.__logger.info('-- starting Rude rules classifier')
+        self.__logger.info('-- starting Hard Rules classifier')
         alchemyEngine = create_engine(
             db_connect_df,  # ej: "postgresql+psycopg2://user:pass@host:5432/dbname"
             pool_recycle=3600,
@@ -74,7 +74,7 @@ class Betting_piracy:
         sec_domain = sec_domain.dropna(subset=['ml_sec_domain_classification'])
 
         df_filtered = sec_domain[['sec_domain_id', 'ml_sec_domain_classification']]
-        df_filtered['decision_source'] = 'Rude Rules'
+        df_filtered['decision_source'] = 'Hard Rules'
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
 
