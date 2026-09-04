@@ -207,7 +207,11 @@ class For_no_redirect_domains:
             sql_string = f"""
                        UPDATE public.secondary_domains
                        SET ml_sec_domain_classification = %s,
-                       decision_source = %s
+                       decision_source = %s,
+                       confidence = NULL,
+                       recommended_action_id = NULL,
+                       justification = NULL,
+                       exploit_type = NULL
                        WHERE sec_domain_id = %s
 
                    """

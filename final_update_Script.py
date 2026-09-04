@@ -10,7 +10,11 @@ def update_secondary_domains_from_invalid_html():
     query = """
         UPDATE secondary_domains sd
         SET ml_sec_domain_classification = 11,
-        decision_source = 'sql script'
+        decision_source = 'sql script',
+        confidence = NULL,
+        recommended_action_id = NULL,
+        justification = NULL,
+        exploit_type = NULL
         WHERE sd.sec_domain_media_type_id = 17
           AND (
                 sd.ml_sec_domain_classification IS NULL
@@ -36,9 +40,13 @@ def update_secondary_domains_publishing_sites():
     query = """
         UPDATE secondary_domains sd
         SET ml_sec_domain_classification = 10,
-        decision_source = 'sql script'
+        decision_source = 'sql script',
+        confidence = NULL,
+        recommended_action_id = NULL,
+        justification = NULL,
+        exploit_type = NULL
         WHERE sd.sec_domain_media_type_id = 5
-          AND ml_sec_domain_classification != 10
+          AND ml_sec_domain_classification NOT IN (10, 13)
     """
 
     try:

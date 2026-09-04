@@ -10,7 +10,11 @@ def update_secondary_domains_mfa_no_ads():
     query = """
         UPDATE secondary_domains sd
         SET ml_sec_domain_classification = Null,
-        decision_source = 'mfa_no_ads'
+        decision_source = 'mfa_no_ads',
+        confidence = NULL,
+        recommended_action_id = NULL,
+        justification = NULL,
+        exploit_type = NULL
         WHERE 
           (sd.ad_count =  0 or sd.ad_count is null)
           AND ml_sec_domain_classification = 3

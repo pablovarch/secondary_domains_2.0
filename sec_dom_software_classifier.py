@@ -431,7 +431,11 @@ def update_software_subtype_label(sec_domain_id: int, label_id: int) -> bool:
         classification_col = safe_identifier(CLASSIFICATION_COLUMN)
         sql_string = f"""
             UPDATE {table}
-            SET {classification_col} = %s
+            SET {classification_col} = %s,
+                confidence = NULL,
+                recommended_action_id = NULL,
+                justification = NULL,
+                exploit_type = NULL
             WHERE {domain_id_col} = %s
         """
 

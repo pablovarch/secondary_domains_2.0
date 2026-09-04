@@ -5,6 +5,8 @@ import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime
 
+from classification_metadata import expected_metadata
+
 
 class Address_bar_class:
 
@@ -66,18 +68,29 @@ class Address_bar_class:
         filtered_list = pd.merge(sec_domains, address_bar_filtered, left_on='sec_domain', right_on="address_bar_domain", how='inner')
 
         filtered_list["ml_sec_domain_classification"] = 2
-        filtered_list["confidence"] = 'MEDIUM'
-        filtered_list["recommended_action_id"] = 2
+        filtered_list["sec_domain_source"] = 'Ad Sniffer'
+        confidence, action_id, justification, exploit_type = expected_metadata(
+            'Ad Sniffer',
+            'Ad Sniffer',
+            2,
+        )
+        filtered_list["confidence"] = confidence
+        filtered_list["recommended_action_id"] = action_id
+        filtered_list["justification"] = justification
+        filtered_list["exploit_type"] = [exploit_type] * len(filtered_list)
 
         df_filtered = filtered_list[
             [
                 'sec_domain_id',
                 'ml_sec_domain_classification',
                 'confidence',
-                'recommended_action_id'
+                'recommended_action_id',
+                'justification',
+                'exploit_type',
+                'sec_domain_source',
             ]
         ].copy()
-        df_filtered['decision_source'] = 'Ad_sniffer'
+        df_filtered['decision_source'] = 'Ad Sniffer'
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
 
@@ -85,6 +98,10 @@ class Address_bar_class:
         """
         Efficiently updates domain data using a CTE VALUES block (no temp table needed).
         """
+        if not save_data:
+            self.__logger.info('No domains matched Address Bar classifier')
+            return
+
         try:
             conn = psycopg2.connect(host=db_connect['host'],
                                     database=db_connect['database'],
@@ -106,13 +123,18 @@ class Address_bar_class:
                     domain['ml_sec_domain_classification'],
                     domain['decision_source'],
                     domain['confidence'],
-                    domain['recommended_action_id']
+                    domain['recommended_action_id'],
+                    domain['justification'],
+                    domain['exploit_type'],
+                    domain['sec_domain_source'],
                 )
                 for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
-            values_template = ",".join(["(%s, %s, %s, %s, %s)"] * len(data_to_update))
+            values_template = ",".join([
+                "(%s::bigint, %s::smallint, %s::varchar, %s::varchar, %s::smallint, %s::smallint, %s::varchar[], %s::varchar)"
+            ] * len(data_to_update))
             flat_values = []
             for tup in data_to_update:
                 flat_values.extend(tup)  # aplanamos la lista para pasar a execute
@@ -123,15 +145,21 @@ class Address_bar_class:
                     ml_sec_domain_classification,
                     decision_source,
                     confidence,
-                    recommended_action_id
+                    recommended_action_id,
+                    justification,
+                    exploit_type,
+                    sec_domain_source
                 ) AS (
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
                 SET ml_sec_domain_classification = u.ml_sec_domain_classification,
                     decision_source = u.decision_source,
+                    sec_domain_source = u.sec_domain_source,
                     confidence = u.confidence,
-                    recommended_action_id = u.recommended_action_id
+                    recommended_action_id = u.recommended_action_id,
+                    justification = u.justification,
+                    exploit_type = u.exploit_type
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """
@@ -147,4 +175,3 @@ class Address_bar_class:
             cursor.close()
             conn.close()
             print('DB connection closed')
-

@@ -93,7 +93,11 @@ class Block_class:
                 )
                 UPDATE public.secondary_domains AS t
                 SET ml_sec_domain_classification = u.value_to_update,
-                    decision_source = u.decision_source
+                    decision_source = u.decision_source,
+                    confidence = NULL,
+                    recommended_action_id = NULL,
+                    justification = NULL,
+                    exploit_type = NULL
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """
