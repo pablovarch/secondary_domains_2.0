@@ -6,6 +6,8 @@ import numpy as np
 from sqlalchemy import create_engine, text
 from datetime import datetime
 
+from classification_metadata import expected_metadata
+
 
 class Sw_offline_class:
     # Umbrales configurables para detección de FP Risk en Referral Cloaking
@@ -230,7 +232,7 @@ class Sw_offline_class:
           INNER JOIN traffic_sources ts ON cl.d_sec_domain_id = ts.sec_domain_id
           JOIN secondary_domains sd on cl.d_sec_domain_id = sd.sec_domain_id
         where 
-          sd.ml_sec_domain_classification not in (1) or sd.ml_sec_domain_classification is null
+          sd.ml_sec_domain_classification not in (1, 13) or sd.ml_sec_domain_classification is null
         GROUP BY
           sd.sec_domain_id,
           sd.google_search_results,
@@ -411,29 +413,23 @@ class Sw_offline_class:
                     'sec_domain_source': 'SimilarWeb',
                     'confidence': None,
                     'recommended_action_id': None,
-                    'justification': None
+                    'justification': None,
+                    'exploit_type': None,
                 }
 
-                if classification == 2:
-                    if special_no_referral_case:
-                        result['sec_domain_source'] = 'Ad Sniffer'
-                        result['confidence'] = 'MEDIUM'
-                        result['recommended_action_id'] = 2
-                        result['justification'] = 2
-                    else:
-                        result['confidence'] = 'HIGH'
-                        result['recommended_action_id'] = 1
-                        result['justification'] = 1
-                elif classification == 3:
-                    if special_no_referral_case:
-                        result['sec_domain_source'] = 'Ad Sniffer'
-                        result['confidence'] = 'LOW'
-                        result['recommended_action_id'] = 5
-                        result['justification'] = 3
-                    else:
-                        result['confidence'] = 'MEDIUM'
-                        result['recommended_action_id'] = 2
-                        result['justification'] = 4
+                if classification in (2, 3) and special_no_referral_case:
+                    result['sec_domain_source'] = 'Ad Sniffer'
+
+                (
+                    result['confidence'],
+                    result['recommended_action_id'],
+                    result['justification'],
+                    result['exploit_type'],
+                ) = expected_metadata(
+                    result['sec_domain_source'],
+                    'SimilarWeb',
+                    classification,
+                )
 
                 return result
 
@@ -509,6 +505,9 @@ class Sw_offline_class:
         sw_offline['justification_to_update'] = classification_results.apply(
             lambda result: result['justification'] if result else None
         )
+        sw_offline['exploit_type_to_update'] = classification_results.apply(
+            lambda result: result['exploit_type'] if result else None
+        )
 
         # Logging de FP Risk excluidos
         self.__logger.info(
@@ -537,6 +536,7 @@ class Sw_offline_class:
         df_filtered['confidence'] = sw_offline['confidence_to_update']
         df_filtered['recommended_action_id'] = sw_offline['recommended_action_id_to_update']
         df_filtered['justification'] = sw_offline['justification_to_update']
+        df_filtered['exploit_type'] = sw_offline['exploit_type_to_update']
         data_to_save = df_filtered.to_dict('records')
         if not data_to_save:
             self.__logger.info('No classified domains to update')
@@ -567,7 +567,7 @@ class Sw_offline_class:
                 try:
                     if pd.isna(value):
                         return None
-                except TypeError:
+                except (TypeError, ValueError):
                     pass
 
                 if value_type == 'int':
@@ -585,13 +585,14 @@ class Sw_offline_class:
                     clean_value(domain['decision_source'], 'str'),
                     clean_value(domain.get('confidence'), 'str'),
                     clean_value(domain.get('recommended_action_id'), 'int'),
-                    clean_value(domain.get('justification'), 'int')
+                    clean_value(domain.get('justification'), 'int'),
+                    clean_value(domain.get('exploit_type')),
                 ) for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
             values_template = ",".join(
-                ["(%s::bigint, %s::smallint, %s::varchar, %s::varchar, %s::varchar, %s::smallint, %s::smallint)"]
+                ["(%s::bigint, %s::smallint, %s::varchar, %s::varchar, %s::varchar, %s::smallint, %s::smallint, %s::varchar[])"]
                 * len(data_to_update)
             )
             flat_values = []
@@ -606,7 +607,8 @@ class Sw_offline_class:
                     decision_source,
                     confidence_to_update,
                     recommended_action_id_to_update,
-                    justification_to_update
+                    justification_to_update,
+                    exploit_type_to_update
                 ) AS (
                     VALUES {values_template}
                 )
@@ -614,9 +616,10 @@ class Sw_offline_class:
                 SET ml_sec_domain_classification = u.value_to_update,
                     sec_domain_source = u.sec_domain_source_to_update,
                     decision_source = u.decision_source,
-                    confidence = COALESCE(u.confidence_to_update, t.confidence),
-                    recommended_action_id = COALESCE(u.recommended_action_id_to_update, t.recommended_action_id),
-                    justification = COALESCE(u.justification_to_update, t.justification)
+                    confidence = u.confidence_to_update,
+                    recommended_action_id = u.recommended_action_id_to_update,
+                    justification = u.justification_to_update,
+                    exploit_type = u.exploit_type_to_update
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """

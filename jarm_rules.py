@@ -4,6 +4,8 @@ import psycopg2
 import pandas as pd
 from sqlalchemy import create_engine
 
+from classification_metadata import expected_metadata
+
 
 # Para Clasificar dominios de Betting y excluir sitios con piracy brand
 
@@ -27,6 +29,10 @@ class Jarm_processing:
             and google_search_results is not null
             -- and online_status is not null""", conn)
 
+        if sec_domain.empty:
+            self.__logger.info('No unclassified Domain Telemetry records to process')
+            return
+
         def proccess_domains(row):
             if row["google_search_results"] <= 2:
                 return 2
@@ -38,18 +44,29 @@ class Jarm_processing:
         sec_domain['ml_sec_domain_classification'] = sec_domain.apply(proccess_domains, axis=1)
 
         sec_domain = sec_domain.dropna(subset=['ml_sec_domain_classification'])
-        sec_domain['confidence'] = sec_domain['ml_sec_domain_classification'].apply(
-            lambda classification: 'LOW' if classification == 2 else None
+        metadata = sec_domain['ml_sec_domain_classification'].apply(
+            lambda classification: expected_metadata(
+                'Domain Telemetry',
+                'Domain Telemetry',
+                classification,
+            )
         )
-        sec_domain['recommended_action_id'] = sec_domain['ml_sec_domain_classification'].apply(
-            lambda classification: 3 if classification == 2 else None
-        )
-        sec_domain['justification'] = sec_domain['ml_sec_domain_classification'].apply(
-            lambda classification: 6 if classification == 2 else None
-        )
+        sec_domain[
+            ['confidence', 'recommended_action_id', 'justification', 'exploit_type']
+        ] = pd.DataFrame(metadata.tolist(), index=sec_domain.index)
+        sec_domain['decision_source'] = 'Domain Telemetry'
 
         df_filtered = sec_domain[
-            ['sec_domain_id', 'ml_sec_domain_classification', 'confidence', 'recommended_action_id', 'justification']]
+            [
+                'sec_domain_id',
+                'ml_sec_domain_classification',
+                'confidence',
+                'recommended_action_id',
+                'justification',
+                'exploit_type',
+                'decision_source',
+            ]
+        ]
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
 
@@ -57,6 +74,10 @@ class Jarm_processing:
         """
         Efficiently updates domain data using a CTE VALUES block (no temp table needed).
         """
+        if not save_data:
+            self.__logger.info('No domains matched JARM rules')
+            return
+
         try:
             conn = psycopg2.connect(host=db_connect['host'],
                                     database=db_connect['database'],
@@ -78,12 +99,16 @@ class Jarm_processing:
                     domain['ml_sec_domain_classification'],
                     domain.get('confidence'),
                     domain.get('recommended_action_id'),
-                    domain.get('justification')
+                    domain.get('justification'),
+                    domain.get('exploit_type'),
+                    domain.get('decision_source'),
                 ) for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
-            values_template = ",".join(["(%s, %s, %s, %s, %s)"] * len(data_to_update))
+            values_template = ",".join([
+                "(%s::bigint, %s::smallint, %s::varchar, %s::smallint, %s::smallint, %s::varchar[], %s::varchar)"
+            ] * len(data_to_update))
             flat_values = []
             for tup in data_to_update:
                 flat_values.extend(tup)  # aplanamos la lista para pasar a execute
@@ -94,15 +119,19 @@ class Jarm_processing:
                     value_to_update,
                     confidence_to_update,
                     recommended_action_id_to_update,
-                    justification_to_update
+                    justification_to_update,
+                    exploit_type_to_update,
+                    decision_source_to_update
                 ) AS (
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
                 SET ml_sec_domain_classification = u.value_to_update,
-                    confidence = COALESCE(u.confidence_to_update, t.confidence),
-                    recommended_action_id = COALESCE(u.recommended_action_id_to_update, t.recommended_action_id),
-                    justification = COALESCE(u.justification_to_update, t.justification)
+                    decision_source = u.decision_source_to_update,
+                    confidence = u.confidence_to_update,
+                    recommended_action_id = u.recommended_action_id_to_update,
+                    justification = u.justification_to_update,
+                    exploit_type = u.exploit_type_to_update
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """

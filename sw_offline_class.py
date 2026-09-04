@@ -6,6 +6,8 @@ import numpy as np
 from sqlalchemy import create_engine, text
 from datetime import datetime
 
+from classification_metadata import expected_metadata
+
 
 class Sw_offline_class:
     def __init__(self):
@@ -43,7 +45,7 @@ class Sw_offline_class:
               (dts.direct_share + dts.referrals_share) AS direct_plus_referrals
             FROM secondary_domains sd
             INNER JOIN dim_traffic_sources dts ON sd.sec_domain_id = dts.sec_domain_id
-           
+
           ),
           -- Filter out destination domains that are in ad_domains (except approved companies)
           valid_destination_domains AS (
@@ -241,7 +243,7 @@ class Sw_offline_class:
                 if row['google_search_results'] < 2:
                     return 2
                 # online search
-                elif row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2  and row[
+                elif row['% Referrals Infringing'] > 0.5 and row['% Referrals CH Customer Infringing'] > 0.2 and row[
                     '% Direct+Referrals'] > 0.6:
                     # chequear si esta offline o bloqueado
                     if row['online_status'] == "Online":
@@ -272,26 +274,41 @@ class Sw_offline_class:
             # casos no previstos
             else:
                 if row['online_status'] in ["Offline", "Blocked", "Offline | Status Checker", "Offline--Bulk-check",
-                                              "Offline | Ad Sniffer"]:
+                                            "Offline | Ad Sniffer"]:
                     return 0
                 return
 
         sw_offline['ml_sec_domain_classification'] = sw_offline.apply(lambda row: check_domains(row), axis=1)
-        sw_offline.dropna(subset='ml_sec_domain_classification',inplace=True)
+        sw_offline.dropna(subset='ml_sec_domain_classification', inplace=True)
 
+        if sw_offline.empty:
+            self.__logger.info('No domains matched legacy SimilarWeb classifier')
+            return
 
-        df_filtered = sw_offline[['sec_domain_id', 'ml_sec_domain_classification']]
+        df_filtered = sw_offline[['sec_domain_id', 'ml_sec_domain_classification']].copy()
         df_filtered['decision_source'] = 'SimilarWeb'
         df_filtered['sec_domain_source'] = 'SimilarWeb'
+        metadata = df_filtered['ml_sec_domain_classification'].apply(
+            lambda classification: expected_metadata(
+                'SimilarWeb',
+                'SimilarWeb',
+                classification,
+            )
+        )
+        df_filtered[
+            ['confidence', 'recommended_action_id', 'justification', 'exploit_type']
+        ] = pd.DataFrame(metadata.tolist(), index=df_filtered.index)
         data_to_save = df_filtered.to_dict('records')
         self.update_domains(data_to_save)
-
-
 
     def update_domains(self, save_data):
         """
         Efficiently updates domain data using a CTE VALUES block (no temp table needed).
         """
+        if not save_data:
+            self.__logger.info('No domains matched legacy SimilarWeb classifier')
+            return
+
         try:
             conn = psycopg2.connect(host=db_connect['host'],
                                     database=db_connect['database'],
@@ -308,23 +325,48 @@ class Sw_offline_class:
 
             # Preparamos los valores (tuplas de domain_id y valor nuevo)
             data_to_update = [
-                (domain['sec_domain_id'], domain['ml_sec_domain_classification'],domain['sec_domain_source'],domain['decision_source'] ) for domain in save_data
+                (
+                    domain['sec_domain_id'],
+                    domain['ml_sec_domain_classification'],
+                    domain['sec_domain_source'],
+                    domain['decision_source'],
+                    domain.get('confidence'),
+                    domain.get('recommended_action_id'),
+                    domain.get('justification'),
+                    domain.get('exploit_type'),
+                )
+                for domain in save_data
             ]
 
             # Crea un VALUES string gigante para el UPDATE masivo usando CTE
-            values_template = ",".join(["(%s, %s, %s, %s)"] * len(data_to_update))
+            values_template = ",".join([
+                                           "(%s::bigint, %s::smallint, %s::varchar, %s::varchar, %s::varchar, %s::smallint, %s::smallint, %s::varchar[])"
+                                       ] * len(data_to_update))
             flat_values = []
             for tup in data_to_update:
                 flat_values.extend(tup)  # aplanamos la lista para pasar a execute
 
             sql = f"""
-                WITH updates (sec_domain_id, value_to_update,sec_domain_source_to_update, decision_source ) AS (
+                WITH updates (
+                    sec_domain_id,
+                    value_to_update,
+                    sec_domain_source_to_update,
+                    decision_source,
+                    confidence_to_update,
+                    recommended_action_id_to_update,
+                    justification_to_update,
+                    exploit_type_to_update
+                ) AS (
                     VALUES {values_template}
                 )
                 UPDATE public.secondary_domains AS t
                 SET ml_sec_domain_classification = u.value_to_update,
                     sec_domain_source = u.sec_domain_source_to_update,
-                    decision_source = u.decision_source
+                    decision_source = u.decision_source,
+                    confidence = u.confidence_to_update,
+                    recommended_action_id = u.recommended_action_id_to_update,
+                    justification = u.justification_to_update,
+                    exploit_type = u.exploit_type_to_update
                 FROM updates u
                 WHERE t.sec_domain_id = u.sec_domain_id;
             """
