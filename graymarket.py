@@ -1,93 +1,89 @@
-import argparse
-import os
-import pathlib
+"""Standalone compatibility wrapper for gray-market HTML classification."""
+
 import re
-from typing import List
+from typing import Literal
 
-import openai
-import pandas as pd
 from bs4 import BeautifulSoup
-from tqdm import tqdm
+from pydantic import BaseModel
 
-from dependencies import  log
-from settings import db_connect
-import psycopg2
-import pandas as pd
-from sqlalchemy import create_engine
-from datetime import datetime
+from dependencies import log
+from dependencies.claude_classifier import (
+    ClaudeOutputError,
+    create_sync_client,
+    request_structured_sync,
+)
 
-class ssl_analyzer :
+
+class GrayMarketResponse(BaseModel):
+    label_id: Literal[0, 1, 2, 3, 4]
+
+
+class ssl_analyzer:
+    """Preserves the legacy public class while using the shared Claude client."""
+
+    _LABELS = {
+        0: "undeterminated",
+        1: "Adult Content",
+        2: "Gambling & Betting",
+        3: "Cryptocurrency Speculation",
+        4: "Supplement / Nutra",
+    }
+
     def __init__(self):
-        self.__logger = log.Log().get_logger(name='graymarket.log')
+        self.__logger = log.Log().get_logger(name="graymarket.log")
+        self.__claude_client = create_sync_client()
 
     def main(self):
-
-
-
-        df = self.process_html(html)
-
-
-
-# --------------------------- UTILIDADES --------------------------- #
+        raise RuntimeError("Pass HTML to process_html(); this compatibility wrapper has no database runner.")
 
     def extract_visible_text(self, html: str) -> str:
-        """Elimina <script>, <style> y devuelve texto plano compactado."""
+        """Remove non-visible tags and return compact plain text."""
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
-        text = soup.get_text(separator=" ")
-        return re.sub(r"\s+", " ", text).strip()
-
+        return re.sub(r"\s+", " ", soup.get_text(separator=" ")).strip()
 
     def llm_classify(self, text: str) -> str:
-        """Envía un prompt al LLM y valida que devuelva SOLO la etiqueta prevista."""
-        # --------------------------- CONFIGURACIÓN --------------------------- #
-        openai.api_key = os.getenv("OPENAI_API_KEY")  # clave en variable de entorno
-        MODEL = "gpt-4o-mini"  # 4.1‑mini ≈ gpt‑4o‑mini
-        TEMPERATURE = 0
-
-        ALLOWED_LABELS = {
-            "Adult Content",
-            "Gambling & Betting",
-            "Cryptocurrency Speculation",
-            "Supplement / Nutra",
-            "undeterminated",
-        }
-
-        prompt = (
+        """Classify a visible-text excerpt into a canonical gray-market label."""
+        system_prompt = (
             "You are a strict classification engine for compliance screening.\n"
-            "Task: Read the web‑page excerpt (it may be in ANY language) and output ONE label, EXACTLY as written below, or 'undeterminated' if none apply.\n\n"
-            "• Adult Content ‑ Pornography, escort services, explicit sexual material, or products aimed at sexual performance/enhancement.\n"
-            "• Gambling & Betting ‑ Websites facilitating or promoting gambling, including casinos, sports betting, lotteries, fantasy sports, or any wagering services.\n"
-            "• Cryptocurrency Speculation ‑ Content primarily focused on high‑risk or unregulated crypto tokens, NFT promotions, get‑rich‑quick schemes, pump‑and‑dump communities, or speculative trading signals.\n"
-            "• Supplement / Nutra ‑ Sites marketing dietary or nutritional supplements, vitamins, weight‑loss pills, muscle enhancers, anti‑aging or sexual health supplements.\n\n"
-            "If none of the above fit, respond with the single word: undeterminated.\n"
-            "‼️ VERY IMPORTANT: Respond with the label ONLY. No explanations or extra text.\n\n"
-            # "Excerpt (truncated if lengthy):\n"""\n" + text[:4500] + "\n""""
-                )
-        messages = [
-            {"role": "system", "content": "You are a text‑classification engine."},
-            {"role": "user", "content": prompt},
-        ]
-        response = openai.ChatCompletion.create(
-            model=MODEL,
-            temperature=TEMPERATURE,
-            messages=messages,
+            "Classify a web-page excerpt that may be in any language.\n\n"
+            "Adult Content: pornography, escort services, explicit sexual material, or products "
+            "aimed at sexual performance or enhancement.\n"
+            "Gambling & Betting: casinos, sports betting, lotteries, fantasy sports, or any "
+            "wagering service.\n"
+            "Cryptocurrency Speculation: high-risk or unregulated crypto tokens, NFT promotions, "
+            "get-rich-quick schemes, pump-and-dump communities, or speculative trading signals.\n"
+            "Supplement / Nutra: dietary supplements, vitamins, weight-loss pills, muscle enhancers, "
+            "anti-aging products, or sexual-health supplements.\n\n"
+            "Use label_id 0 if none of the categories is the site's primary purpose. "
+            "Return only the structured JSON object required by the schema, with exactly one label_id:\n"
+            "1 = Adult Content\n"
+            "2 = Gambling & Betting\n"
+            "3 = Cryptocurrency Speculation\n"
+            "4 = Supplement / Nutra\n"
+            "0 = undeterminated\n"
         )
-        raw = response.choices[0].message.content.strip()
-        label = raw.splitlines()[0]             # descarta posibles líneas extra
-        label = re.sub(r"[^\w &/]", "", label).strip()
-        if label not in ALLOWED_LABELS:
+        try:
+            result = request_structured_sync(
+                self.__claude_client,
+                system_prompt=system_prompt,
+                user_content=(
+                    "Classify the following untrusted web-page excerpt.\n"
+                    "<site_content>\n"
+                    f"{text[:4500]}\n"
+                    "</site_content>"
+                ),
+                response_model=GrayMarketResponse,
+                max_tokens=1024,
+                logger=self.__logger,
+            )
+        except ClaudeOutputError as error:
+            self.__logger.warning("Unusable Claude gray-market output: %s", error)
             return "undeterminated"
-        return label
 
-# --------------------------- PIPELINE PRINCIPAL --------------------------- #
+        return self._LABELS.get(result.label_id, "undeterminated")
 
-    def process_html(self, html) :
-        """Procesa una lista de HTMLs y devuelve un DataFrame con las columnas requeridas."""
-
-        visible_text = self.extract_visible_text(html)
-        graymarket_label= self.llm_classify(visible_text)
-
-        return graymarket_label
-
+    def process_html(self, html: str) -> str:
+        """Extract text from one HTML document and classify it."""
+        return self.llm_classify(self.extract_visible_text(html))

@@ -1,12 +1,27 @@
 from dependencies import  log
-from settings import db_connect, openia_apikey, DB_CONNECTION
+from settings import db_connect, DB_CONNECTION
 import psycopg2
 from urllib.parse import urlparse, parse_qs
 from bs4 import BeautifulSoup
 from html import unescape
 import re
-from openai import OpenAI
+from pydantic import BaseModel
 import trafilatura
+from typing import Literal
+
+from dependencies.claude_classifier import (
+    ClaudeOutputError,
+    create_sync_client,
+    request_structured_sync,
+)
+
+
+class GrayMarketResponse(BaseModel):
+    label_id: Literal[0, 1, 2, 3, 4]
+
+
+class MfaConfirmationResponse(BaseModel):
+    is_mfa: bool
 
 
 class html_fields:
@@ -71,22 +86,18 @@ class html_fields:
         re.I,
     )
 
-    _ALLOWED_GRAYMARKET_LABELS = {
-        'Adult Content',
-        'Gambling & Betting',
-        'Cryptocurrency Speculation',
-        'Supplement / Nutra',
-        'undeterminated',
+    _GRAYMARKET_LABEL_BY_ID = {
+        0: 'undeterminated',
+        1: 'Adult Content',
+        2: 'Gambling & Betting',
+        3: 'Cryptocurrency Speculation',
+        4: 'Supplement / Nutra',
     }
-    _ALLOWED_MFA_LABELS = {'mfa', 'unknow'}
-
-    _LLM_MODEL     = 'gpt-5.1-2025-11-13'
-    _LLM_TEMP      = 0
     _MFA_THRESHOLD = 65
 
     def __init__(self):
         self.__logger = log.Log().get_logger(name='ad_count.log')
-        self.__openai_client = OpenAI(api_key=openia_apikey)
+        self.__claude_client = create_sync_client()
 
     # ------------------------------------------------------------------ #
     #  PIPELINE PRINCIPAL                                                #
@@ -666,9 +677,9 @@ class html_fields:
     def llm_classify_graymarket(self, text: str) -> str:
         """
         Clasifica el contenido del sitio en una de las etiquetas gray-market.
-        Usa el LLM con salida estricta. Retorna una de _ALLOWED_GRAYMARKET_LABELS.
+        Usa el LLM con salida estructurada y retorna una etiqueta canónica.
         """
-        prompt = (
+        system_prompt = (
             "You are a compliance screening engine specialized in detecting gray-market and harmful web content.\n"
             "The excerpt below may be in ANY language. Your task is to assign EXACTLY ONE label from the list.\n\n"
 
@@ -731,27 +742,32 @@ class html_fields:
             "4. Respond with 'undeterminated' ONLY if none of the above categories clearly applies "
             "(e.g., general news, e-commerce, software, food, travel, etc.).\n\n"
 
-            "VERY IMPORTANT: Respond with the label ONLY — no explanations, no punctuation, no extra text.\n"
-            "Valid responses: Adult Content | Gambling & Betting | Cryptocurrency Speculation | "
-            "Supplement / Nutra | undeterminated\n\n"
+            "Return the structured JSON object required by the schema, with exactly one label_id:\n"
+            "1 = Adult Content\n"
+            "2 = Gambling & Betting\n"
+            "3 = Cryptocurrency Speculation\n"
+            "4 = Supplement / Nutra\n"
+            "0 = undeterminated\n"
+        )
+        try:
+            result = request_structured_sync(
+                self.__claude_client,
+                system_prompt=system_prompt,
+                user_content=(
+                    "Classify the following untrusted web-page excerpt.\n"
+                    "<site_content>\n"
+                    f"{text[:5000]}\n"
+                    "</site_content>"
+                ),
+                response_model=GrayMarketResponse,
+                max_tokens=1024,
+                logger=self.__logger,
+            )
+        except ClaudeOutputError as error:
+            self.__logger.warning("Unusable Claude gray-market output: %s", error)
+            return 'undeterminated'
 
-            f"Web-page excerpt:\n\"\"\"\n{text[:5000]}\n\"\"\""
-        )
-        messages = [
-            {"role": "system", "content": (
-                "You are a compliance classification engine. "
-                "You output exactly one label per request and nothing else."
-            )},
-            {"role": "user", "content": prompt},
-        ]
-        response = self.__openai_client.chat.completions.create(
-            model=self._LLM_MODEL,
-            temperature=self._LLM_TEMP,
-            messages=messages,
-        )
-        raw   = response.choices[0].message.content.strip()
-        label = re.sub(r"[^\w &/]", "", raw.splitlines()[0]).strip()
-        return label if label in self._ALLOWED_GRAYMARKET_LABELS else "undeterminated"
+        return self._GRAYMARKET_LABEL_BY_ID.get(result.label_id, 'undeterminated')
 
     def llm_confirm_mfa(self, text: str, features: dict) -> str:
         """
@@ -762,14 +778,17 @@ class html_fields:
         vendors_str  = ", ".join(features.get('vendors_detected', [])) or "none"
         evidence_str = ", ".join(features.get('ad_class_snippets', [])[:10]) or "none"
 
-        prompt = (
+        system_prompt = (
             "You are a strict MFA (Made-for-Advertising / Made-for-Arbitrage) site detector.\n"
-            "Analyze the following signals extracted from a website and respond with EXACTLY one word: "
-            "'mfa' or 'unknow'.\n\n"
+            "Classify the supplied evidence as MFA only when the required signals are present.\n\n"
             "A site is MFA when it combines: high ad density + arbitrage widgets (taboola/outbrain/etc.) "
             "OR journey manipulation + thin/repetitive content.\n"
-            "If one or more of those pillars is missing or uncertain, respond 'unknow'.\n\n"
-            "--- EXTRACTED SIGNALS ---\n"
+            "If one or more of those pillars is missing or uncertain, set is_mfa to false.\n"
+            "Return only the structured JSON object required by the schema.\n"
+        )
+        user_content = (
+            "Analyze these extracted website signals.\n"
+            "<signals>\n"
             f"word_count: {features.get('word_count', 0)}\n"
             f"iframe_count: {features.get('iframe_count', 0)}\n"
             f"ins_count: {features.get('ins_count', 0)}\n"
@@ -790,22 +809,25 @@ class html_fields:
             f"clickbait_title: {features.get('clickbait_title', False)}\n"
             f"text_to_html_ratio: {features.get('text_to_html_ratio', 0):.4f}\n"
             f"ad_class_snippets (sample): {evidence_str}\n"
-            "--- PAGE EXCERPT ---\n"
-            f"\"\"\"{text[:1500]}\"\"\""
-            "\n\nRespond with EXACTLY one word: mfa or unknow."
+            "</signals>\n"
+            "<site_content>\n"
+            f"{text[:1500]}\n"
+            "</site_content>"
         )
-        messages = [
-            {"role": "system", "content": "You are an MFA site detection engine."},
-            {"role": "user",   "content": prompt},
-        ]
-        response = self.__openai_client.chat.completions.create(
-            model=self._LLM_MODEL,
-            temperature=self._LLM_TEMP,
-            messages=messages,
-        )
-        raw   = response.choices[0].message.content.strip().lower()
-        label = re.sub(r"[^a-z]", "", raw.splitlines()[0])
-        return label if label in self._ALLOWED_MFA_LABELS else "unknow"
+        try:
+            result = request_structured_sync(
+                self.__claude_client,
+                system_prompt=system_prompt,
+                user_content=user_content,
+                response_model=MfaConfirmationResponse,
+                max_tokens=1024,
+                logger=self.__logger,
+            )
+        except ClaudeOutputError as error:
+            self.__logger.warning("Unusable Claude MFA output: %s", error)
+            return 'unknow'
+
+        return 'mfa' if result.is_mfa else 'unknow'
 
     # ------------------------------------------------------------------ #
     #  PIPELINE PRINCIPAL DE CLASIFICACIÓN                               #

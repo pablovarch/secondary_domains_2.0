@@ -5,11 +5,16 @@ import re
 
 from psycopg2 import pool
 from pydantic import BaseModel
-from openai import AsyncOpenAI, RateLimitError, APIConnectionError, APIStatusError
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from settings import DB_CONNECTION, openia_apikey
+from anthropic import APIStatusError, AsyncAnthropic
+from settings import DB_CONNECTION
 from dotenv import load_dotenv
 from typing import Any, Literal
+
+from dependencies.claude_classifier import (
+    ClaudeOutputError,
+    create_async_client,
+    request_structured_async,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -20,16 +25,12 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 logger.info('Loading script')
-OPENAI_APIKEY = openia_apikey
-
 # Configuration constants
 MAX_HTML_CHARS = 80000
 MAX_CONCURRENT_REQUESTS = 5
 DB_POOL_MIN_CONN = 1
 DB_POOL_MAX_CONN = 10
 
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-5.1-2025-11-13")
-REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "none")
 DOMAIN_PROCESS_LIMIT = int(os.getenv("DOMAIN_PROCESS_LIMIT", "1000"))
 
 SECONDARY_DOMAIN_TABLE = os.getenv("SECONDARY_DOMAIN_TABLE", "secondary_domains")
@@ -455,27 +456,17 @@ def update_software_subtype_label(sec_domain_id: int, label_id: int) -> bool:
     return success
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((RateLimitError, APIConnectionError)),
-    before_sleep=lambda retry_state: logger.warning(
-        f"Classification retry {retry_state.attempt_number} after error: {retry_state.outcome.exception()}"
-    )
-)
 async def classify_software_subtype(
-        client: AsyncOpenAI,
+        client: AsyncAnthropic,
         raw_html: str,
         prepared_text: str | None,
         sec_domain_id: int
 ) -> int:
     """
     Classifies a Software domain into subtype label 9 (generic software) or
-    12 (Chrome Extension / VPN) using OpenAI structured output.
+    12 (Chrome Extension / VPN) using Claude structured output.
     Fallback on any error: returns 9.
     """
-    model = MODEL_NAME
-
     try:
         prepared = (prepared_text or prepare_html_for_llm(raw_html) or "")
 
@@ -500,56 +491,15 @@ async def classify_software_subtype(
             "Use the system instructions to set the label_id in the SoftwareSubtypeResponse schema."
         )
 
-        messages = [
-            {
-                "role": "system",
-                "content": SOFTWARE_SUBTYPE_CLASSIFICATION_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": user_content,
-            },
-        ]
-
-        common_kwargs = {
-            "model": model,
-            "messages": messages,
-            "response_format": SoftwareSubtypeResponse,
-            "temperature": 0,
-            "max_completion_tokens": 64,
-            "store": False,
-        }
-
-        if str(REASONING_EFFORT).lower() == "none":
-            completion = await client.beta.chat.completions.parse(**common_kwargs)
-        else:
-            try:
-                completion = await client.beta.chat.completions.parse(
-                    **common_kwargs,
-                    reasoning={"effort": REASONING_EFFORT},
-                )
-            except TypeError as e:
-                if "unexpected keyword argument" in str(e) and "reasoning" in str(e):
-                    try:
-                        completion = await client.beta.chat.completions.parse(
-                            **common_kwargs,
-                            reasoning_effort=REASONING_EFFORT,
-                        )
-                    except TypeError as e2:
-                        if "unexpected keyword argument" in str(e2) and "reasoning_effort" in str(e2):
-                            completion = await client.beta.chat.completions.parse(**common_kwargs)
-                        else:
-                            raise
-                else:
-                    raise
-
-        result = completion.choices[0].message.parsed
-
-        if not result:
-            logger.warning(
-                f"sec_domain_id {sec_domain_id}: empty parsed result, defaulting to 9"
-            )
-            return 9
+        result = await request_structured_async(
+            client,
+            system_prompt=SOFTWARE_SUBTYPE_CLASSIFICATION_PROMPT,
+            user_content=user_content,
+            response_model=SoftwareSubtypeResponse,
+            # Sonnet 5's token limit includes medium-effort reasoning and the JSON response.
+            max_tokens=1024,
+            logger=logger,
+        )
 
         label_id = int(result.label_id)
 
@@ -564,10 +514,15 @@ async def classify_software_subtype(
 
     except APIStatusError as e:
         logger.error(
-            f"OpenAI API error for sec_domain_id {sec_domain_id}: "
-            f"{e.status_code} - {e.message}"
+            f"Claude API error for sec_domain_id {sec_domain_id}: "
+            f"{e.status_code} - {e}"
         )
         raise
+    except ClaudeOutputError as e:
+        logger.warning(
+            f"sec_domain_id {sec_domain_id}: unusable Claude output ({e}), defaulting to 9"
+        )
+        return 9
     except Exception as e:
         logger.error(
             f"Error classifying sec_domain_id {sec_domain_id}: {e}. Defaulting to 9"
@@ -576,7 +531,7 @@ async def classify_software_subtype(
 
 
 async def process_software_domain(
-        client: AsyncOpenAI,
+        client: AsyncAnthropic,
         sec_domain_id: int,
         semaphore: asyncio.Semaphore,
 ) -> tuple[int, str]:
@@ -635,14 +590,10 @@ async def main():
     """Main async entry point: classifies Software domains into subtype 9 or 12."""
     logger.info("Starting Software subtype classification (Chrome Extension / VPN detector)")
 
-    api_key = OPENAI_APIKEY or os.getenv("OPENAI_API_KEY", "")
-    if not api_key:
-        raise ValueError("Missing OpenAI API key. Set OPENAI_API_KEY env var or configure settings.")
-    client = AsyncOpenAI(api_key=api_key)
-
-    init_db_pool()
+    client = create_async_client()
 
     try:
+        init_db_pool()
         domain_ids = get_software_domains_pending_subtype()
 
         if not domain_ids:
@@ -689,6 +640,7 @@ async def main():
 
     finally:
         close_db_pool()
+        await client.close()
 
 
 if __name__ == "__main__":

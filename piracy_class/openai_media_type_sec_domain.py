@@ -5,13 +5,16 @@ import re
 import psycopg2
 from psycopg2 import pool
 from pydantic import BaseModel
-from openai import AsyncOpenAI, RateLimitError, APIConnectionError, APIStatusError
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
-import settings
+from anthropic import APIStatusError, AsyncAnthropic
 from settings import DB_CONNECTION
 from dotenv import load_dotenv
 from typing import Literal
+
+from dependencies.claude_classifier import (
+    ClaudeOutputError,
+    create_async_client,
+    request_structured_async,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -22,8 +25,6 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 logger.info('Loading script')
-OPENAI_APIKEY = settings.openia_apikey
-
 # Valid media type IDs
 VALID_MEDIA_TYPES = {1, 3, 4, 2, 6, 5, 14, 8, 9, 10, 13, 7, 12, 17}
 
@@ -549,58 +550,31 @@ def update_media_type(sec_domain_id: int, sec_domain_media_type_id: int) -> bool
     return success
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((RateLimitError, APIConnectionError)),
-    before_sleep=lambda retry_state: logger.warning(
-        f"Classification retry {retry_state.attempt_number} after error: {retry_state.outcome.exception()}"
-    )
-)
 async def classify_media_type(
-        client: AsyncOpenAI,
+        client: AsyncAnthropic,
         processed_html: str,
         sec_domain_id: int
 ) -> int:
     """
-    Classify processed HTML content into a media type using OpenAI.
+    Classify processed HTML content into a media type using Claude.
 
     Returns a single media type ID (int). Fallback: 12 (Other).
     """
-    # Puedes usar el alias estable si preferís:
-    # model = "gpt-5.1"
-    model = "gpt-5.1-2025-11-13"
-
     try:
-
-        completion = await client.beta.chat.completions.parse(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": MEDIA_TYPE_CLASSIFICATION_PROMPT,
-                },
-                {
-                    "role": "user",
-                    "content": f"Classify:\n{processed_html}",
-                },
-            ],
-            # Structured output con Pydantic
-            response_format=MediaTypeResponse,
-            # Para clasificación: determinismo y bajo coste
-            # GPT-5.1 usa reasoning tokens internamente, necesita margen
-            temperature=0,
-            max_completion_tokens=256,
-            store=False,
+        result = await request_structured_async(
+            client,
+            system_prompt=MEDIA_TYPE_CLASSIFICATION_PROMPT,
+            user_content=(
+                "Classify this website according to the system instructions.\n"
+                "<site_content>\n"
+                f"{processed_html}\n"
+                "</site_content>"
+            ),
+            response_model=MediaTypeResponse,
+            # Sonnet 5's token limit includes medium-effort reasoning and the JSON response.
+            max_tokens=1024,
+            logger=logger,
         )
-
-        result = completion.choices[0].message.parsed
-
-        if not result:
-            logger.warning(
-                f"sec_domain_id {sec_domain_id} got empty parsed result, defaulting to Other (12)"
-            )
-            return 12
 
         media_type_id = int(result.media_type)
 
@@ -619,10 +593,15 @@ async def classify_media_type(
 
     except APIStatusError as e:
         logger.error(
-            f"OpenAI API error classifying sec_domain_id {sec_domain_id}: "
-            f"{e.status_code} - {e.message}"
+            f"Claude API error classifying sec_domain_id {sec_domain_id}: "
+            f"{e.status_code} - {e}"
         )
         raise
+    except ClaudeOutputError as e:
+        logger.warning(
+            f"sec_domain_id {sec_domain_id} got unusable Claude output ({e}), defaulting to Other (12)"
+        )
+        return 12
     except Exception as e:
         logger.error(
             f"Error classifying sec_domain_id {sec_domain_id}: {e}. "
@@ -632,7 +611,7 @@ async def classify_media_type(
 
 
 async def process_domain(
-        client: AsyncOpenAI,
+        client: AsyncAnthropic,
         sec_domain_id: int,
         semaphore: asyncio.Semaphore
 ) -> tuple[int, str]:
@@ -658,7 +637,7 @@ async def process_domain(
                 update_media_type(sec_domain_id, 17)
                 return (sec_domain_id, 'processed')
 
-            # Step 4: Classify with OpenAI
+            # Step 4: Classify with Claude
             media_type_id = await classify_media_type(client, processed_html, sec_domain_id)
 
             # Step 5: Update database
@@ -679,13 +658,12 @@ async def main():
     """Main async entry point with concurrent processing."""
     logger.info("Starting media type classification process")
 
-    # Initialize OpenAI client
-    client = AsyncOpenAI(api_key=OPENAI_APIKEY)
-
-    # Initialize DB pool
-    init_db_pool()
+    # Initialize Claude client
+    client = create_async_client()
 
     try:
+        # Initialize DB pool
+        init_db_pool()
         # Get all domain IDs to process
         domain_ids = get_all_discovery_domains()
 
@@ -737,6 +715,7 @@ async def main():
     finally:
         # Always close the DB pool
         close_db_pool()
+        await client.close()
 
 
 if __name__ == "__main__":
