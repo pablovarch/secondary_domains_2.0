@@ -20,7 +20,7 @@ import block_class
 import sec_dom_software_classifier
 import final_update_Script
 import mfa_no_ads
-from piracy_class import openai_media_type_sec_domain
+from piracy_class import claude_media_type_sec_domain
 from piracy_class import ssl_analyzer_sec_domain
 from piracy_class import sec_dom_piracy_classifier_v2
 import Confidence_Script
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     sw_offline_class2.Sw_offline_class().main()
     mfa_no_ads.main()
     block_class.Block_class().main()
-    asyncio.run(openai_media_type_sec_domain.main())
+    asyncio.run(claude_media_type_sec_domain.main())
     asyncio.run(ssl_analyzer_sec_domain.run_backfill())
     asyncio.run(sec_dom_piracy_classifier_v2.main())
     html_fields.html_fields().main()

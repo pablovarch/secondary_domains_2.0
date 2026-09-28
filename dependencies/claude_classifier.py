@@ -10,7 +10,7 @@ import json
 import logging
 import os
 from typing import TypeVar
-
+from settings import claude_api_key
 from anthropic import Anthropic, AsyncAnthropic, transform_schema
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
@@ -42,7 +42,7 @@ class ClaudeOutputError(ValueError):
 
 def _required_api_key() -> str:
     load_dotenv()
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = claude_api_key
     if not api_key:
         raise ClaudeConfigurationError(
             "Missing ANTHROPIC_API_KEY. Configure it in the environment before running a classifier."
